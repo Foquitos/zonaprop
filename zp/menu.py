@@ -414,13 +414,20 @@ class Menu(ttk.Frame):
 
     def abrir_ficha_visita(self):
         c = self._obtener_carpeta_run()
-        if c and (c / "ficha_visita.md").exists():
-            try:
-                os.startfile(str(c / "ficha_visita.md"))
-            except Exception:
-                webbrowser.open(str(c / "ficha_visita.md"))
-        else:
-            messagebox.showinfo("Ficha de Visita", "Aún no se generó ficha_visita.md. Corré '4 · Dossier'.")
+        if c:
+            pdf_path = c / "ficha_visita.pdf"
+            html_path = c / "ficha_visita.html"
+            md_path = c / "ficha_visita.md"
+
+            archivo_a_abrir = pdf_path if pdf_path.exists() else (html_path if html_path.exists() else md_path)
+            if archivo_a_abrir.exists():
+                try:
+                    os.startfile(str(archivo_a_abrir))
+                except Exception:
+                    webbrowser.open(str(archivo_a_abrir))
+                return
+
+        messagebox.showinfo("Ficha de Visita", "Aún no se generó la ficha de visita. Corré '4 · Dossier'.")
 
     def abrir_carpeta_fotos(self):
         c = self._obtener_carpeta_run()
@@ -449,8 +456,8 @@ class Menu(ttk.Frame):
         except ValueError:
             raise ValueError(f"'{self.campos[clave].get()}' no es un número válido.")
 
-    def nombre_run(self, slug: str) -> str:
-        return urls.nombre_run(slug, self._ambientes())
+    def nombre_run(self, zonas_sel: str | list[str]) -> str:
+        return urls.nombre_run(zonas_sel, self._ambientes())
 
     def _extras_navegador(self) -> list[str]:
         extras = ["--espera-captcha", str(int(self._numero("espera_captcha")))]
@@ -475,83 +482,80 @@ class Menu(ttk.Frame):
         elegidas = self._validar()
         if not elegidas:
             return
-        cmds = []
-        for slug in elegidas:
-            run = self.nombre_run(slug)
-            self.ultimo_run = run
-            cmds.append(["buscar", "--zona", slug,
-                         "--ambientes", *[str(a) for a in self._ambientes()],
-                         "--tipos", *self._tipos(),
-                         "--paginas", str(int(self._numero("paginas"))),
-                         "--run", run] + self._extras_navegador())
-        self._correr(cmds, "Buscando en Zonaprop", progreso_val=25)
+        run = self.nombre_run(elegidas)
+        self.ultimo_run = run
+        presupuesto = int(self._numero("presupuesto")) if self._numero("presupuesto", False) else None
+        precio_max_args = ["--precio-max", str(presupuesto)] if presupuesto else []
+
+        cmd = ["buscar", "--zona", *elegidas,
+               "--ambientes", *[str(a) for a in self._ambientes()],
+               "--tipos", *self._tipos(),
+               "--paginas", str(int(self._numero("paginas"))),
+               "--run", run] + precio_max_args + self._extras_navegador()
+        self._correr([cmd], f"Buscando en {len(elegidas)} zona(s)", progreso_val=25)
 
     def paso_rankear(self):
         elegidas = self._validar()
         if not elegidas:
             return
-        cmds = []
-        for s in elegidas:
-            run = self.nombre_run(s)
-            self.ultimo_run = run
-            cmds.append(["rankear", "--run", run,
-                         "--presupuesto", str(int(self._numero("presupuesto"))),
-                         "--dolar", str(int(self._numero("dolar"))),
-                         "--top", str(int(self._numero("top")))])
-        self._correr(cmds, "Rankeando candidatos", progreso_val=50)
+        run = self.nombre_run(elegidas)
+        self.ultimo_run = run
+        cmd = ["rankear", "--run", run,
+               "--presupuesto", str(int(self._numero("presupuesto"))),
+               "--dolar", str(int(self._numero("dolar"))),
+               "--top", str(int(self._numero("top")))]
+        self._correr([cmd], "Rankeando candidatos", progreso_val=50)
 
     def paso_fotos(self):
         elegidas = self._validar()
         if not elegidas:
             return
-        cmds = []
-        for s in elegidas:
-            run = self.nombre_run(s)
-            self.ultimo_run = run
-            cmds.append(["fotos", "--run", run,
-                         "--top", str(int(self._numero("top"))),
-                         "--max-fotos", str(int(self._numero("max_fotos"))),
-                         "--presupuesto", str(int(self._numero("presupuesto"))),
-                         "--dolar", str(int(self._numero("dolar")))] + self._extras_navegador())
-        self._correr(cmds, "Descargando fotos y armando contactos", progreso_val=75)
+        run = self.nombre_run(elegidas)
+        self.ultimo_run = run
+        cmd = ["fotos", "--run", run,
+               "--top", str(int(self._numero("top"))),
+               "--max-fotos", str(int(self._numero("max_fotos"))),
+               "--presupuesto", str(int(self._numero("presupuesto"))),
+               "--dolar", str(int(self._numero("dolar")))] + self._extras_navegador()
+        self._correr([cmd], "Descargando fotos y armando contactos", progreso_val=75)
 
     def paso_dossier(self):
         elegidas = self._validar()
         if not elegidas:
             return
-        cmds = []
-        for s in elegidas:
-            run = self.nombre_run(s)
-            self.ultimo_run = run
-            cmds.append(["dossier", "--run", run,
-                         "--top", str(int(self._numero("top")))])
-        self._correr(cmds, "Generando dossier, dashboard y mapa", progreso_val=100)
+        run = self.nombre_run(elegidas)
+        self.ultimo_run = run
+        cmd = ["dossier", "--run", run,
+               "--top", str(int(self._numero("top")))]
+        self._correr([cmd], "Generando dossier, dashboard y mapa", progreso_val=100)
 
     def paso_todo(self):
         elegidas = self._validar()
         if not elegidas:
             return
-        cmds = []
-        for s in elegidas:
-            run = self.nombre_run(s)
-            self.ultimo_run = run
-            cmds.append(["buscar", "--zona", s,
-                         "--ambientes", *[str(a) for a in self._ambientes()],
-                         "--tipos", *self._tipos(),
-                         "--paginas", str(int(self._numero("paginas"))),
-                         "--run", run] + self._extras_navegador())
-            cmds.append(["rankear", "--run", run,
-                         "--presupuesto", str(int(self._numero("presupuesto"))),
-                         "--dolar", str(int(self._numero("dolar"))),
-                         "--top", str(int(self._numero("top")))])
-            cmds.append(["fotos", "--run", run,
-                         "--top", str(int(self._numero("top"))),
-                         "--max-fotos", str(int(self._numero("max_fotos"))),
-                         "--presupuesto", str(int(self._numero("presupuesto"))),
-                         "--dolar", str(int(self._numero("dolar")))]
-                        + self._extras_navegador())
-            cmds.append(["dossier", "--run", run, "--top", str(int(self._numero("top")))])
-        self._correr(cmds, "Ejecutando Pipeline Completo", progreso_val=100)
+        run = self.nombre_run(elegidas)
+        self.ultimo_run = run
+        presupuesto = int(self._numero("presupuesto")) if self._numero("presupuesto", False) else None
+        precio_max_args = ["--precio-max", str(presupuesto)] if presupuesto else []
+
+        cmds = [
+            ["buscar", "--zona", *elegidas,
+             "--ambientes", *[str(a) for a in self._ambientes()],
+             "--tipos", *self._tipos(),
+             "--paginas", str(int(self._numero("paginas"))),
+             "--run", run] + precio_max_args + self._extras_navegador(),
+            ["rankear", "--run", run,
+             "--presupuesto", str(int(self._numero("presupuesto"))),
+             "--dolar", str(int(self._numero("dolar"))),
+             "--top", str(int(self._numero("top")))],
+            ["fotos", "--run", run,
+             "--top", str(int(self._numero("top"))),
+             "--max-fotos", str(int(self._numero("max_fotos"))),
+             "--presupuesto", str(int(self._numero("presupuesto"))),
+             "--dolar", str(int(self._numero("dolar")))] + self._extras_navegador(),
+            ["dossier", "--run", run, "--top", str(int(self._numero("top")))],
+        ]
+        self._correr(cmds, f"Ejecutando Pipeline Completo ({len(elegidas)} zonas)", progreso_val=100)
 
     # ------------------------------------------------------------------ #
     # Ejecución de subprocesos

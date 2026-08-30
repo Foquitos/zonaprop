@@ -242,6 +242,20 @@ def buscar(texto: str) -> list[Zona]:
     return [z for z in TODAS.values() if t in _norm(z.nombre) or t in _norm(z.slug)]
 
 
+def obtener_coordenadas(aviso: dict) -> tuple[float, float] | None:
+    """Devuelve las coordenadas (lat, lng) reales del aviso si fueron extraídas por el scraper."""
+    lat = aviso.get("latitude")
+    lng = aviso.get("longitude")
+    if lat is not None and lng is not None:
+        try:
+            f_lat, f_lng = float(lat), float(lng)
+            if abs(f_lat) > 0 and abs(f_lng) > 0 and -90 <= f_lat <= 90 and -180 <= f_lng <= 180:
+                return round(f_lat, 6), round(f_lng, 6)
+        except (ValueError, TypeError):
+            pass
+    return None
+
+
 def resumen() -> str:
     """Listado en texto, para `python zp.py zonas`."""
     lineas = []

@@ -66,6 +66,8 @@ def construir_url(
     operacion: str = "alquiler",
     ambientes=None,
     pagina: int = 1,
+    precio_max: float | int | None = None,
+    precio_min: float | int | None = None,
     extras=(),
 ) -> str:
     """Devuelve la URL de una página de resultados.
@@ -73,6 +75,7 @@ def construir_url(
     zona: 'vicente-lopez', 'nunez', 'belgrano', 'olivos', 'capital-federal'...
     tipos: lista de tipos de propiedad.
     ambientes: lista de enteros, normalmente uno solo (ver _slug_ambientes).
+    precio_max: tope de precio en pesos para la URL de Zonaprop.
     extras: segmentos extra opcionales, p.ej. ('apto-mascotas',).
     """
     tipos_slug = [TIPOS.get(t.lower(), slugify(t)) for t in tipos]
@@ -81,6 +84,12 @@ def construir_url(
     amb = _slug_ambientes(ambientes or [])
     if amb:
         partes.append(amb)
+
+    if precio_max:
+        partes.append(f"menos-{int(precio_max)}-pesos")
+    if precio_min:
+        partes.append(f"mas-de-{int(precio_min)}-pesos")
+
     partes.extend(slugify(e) for e in extras)
 
     slug = "-".join(p for p in partes if p)
@@ -89,6 +98,16 @@ def construir_url(
     return f"{BASE}/{slug}.html"
 
 
-def nombre_run(zona: str, ambientes=None, operacion: str = "alquiler") -> str:
+def nombre_run(zona: str | list[str] | tuple[str, ...], ambientes=None, operacion: str = "alquiler") -> str:
+    if isinstance(zona, (list, tuple)):
+        if len(zona) == 1:
+            z_slug = slugify(zona[0])
+        elif len(zona) <= 3:
+            z_slug = "-".join(slugify(z) for z in zona)
+        else:
+            z_slug = f"{slugify(zona[0])}-y-{len(zona)-1}-zonas"
+    else:
+        z_slug = slugify(zona)
+
     amb = "-".join(str(a) for a in (ambientes or [])) or "todos"
-    return f"{slugify(zona)}-{amb}amb-{operacion}"
+    return f"{z_slug}-{amb}amb-{operacion}"

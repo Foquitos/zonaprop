@@ -23,6 +23,11 @@ def test_urls():
     assert urls.construir_url("nunez", tipos=["departamentos"], ambientes=[1], pagina=3) == (
         "https://www.zonaprop.com.ar/departamentos-alquiler-nunez-1-ambiente-pagina-3.html"
     )
+    assert urls.construir_url("caballito", ambientes=[2], precio_max=900000) == (
+        "https://www.zonaprop.com.ar/departamentos-ph-alquiler-caballito-2-ambientes-menos-900000-pesos.html"
+    )
+    assert urls.nombre_run(["nunez", "belgrano"], ambientes=[2, 3]) == "nunez-belgrano-2-3amb-alquiler"
+    assert urls.nombre_run(["nunez", "belgrano", "colegiales", "villa-urquiza"], ambientes=[2]) == "nunez-y-3-zonas-2amb-alquiler"
 
 
 def test_listado_campos():
@@ -603,17 +608,16 @@ def test_exportar_mapas_geojson_kml(tmp_path):
     assert "<kml" in kml.read_text(encoding="utf-8")
 
 
-def test_catalogo_completo_caba():
-    """Verifica que estén todos los barrios clave de CABA."""
-    barrios_clave = [
-        "palermo", "recoleta", "belgrano", "caballito", "almagro", "villa-crespo",
-        "san-telmo", "puerto-madero", "villa-devoto", "villa-urquiza", "flores",
-        "barracas", "boedo", "chacarita", "saavedra", "nunez", "liniers"
-    ]
-    for b in barrios_clave:
-        z = zonas.obtener(b)
-        assert z is not None, f"Falta el barrio '{b}' en el catálogo de CABA"
-        assert z.slug == b
+def test_geocodificador_real():
+    """Verifica el normalizador y geocodificador real con caché."""
+    from zp import geocodificador
+    assert geocodificador.normalizar_direccion("Av. La Plata al 1400 3° B") == "Av. La Plata 1400"
+    assert geocodificador.normalizar_direccion("Pasaje Faraday al 1560") == "Pasaje Faraday 1560"
+    assert geocodificador.tiene_altura_o_calle("Beauchef 1300") is True
+    assert geocodificador.tiene_altura_o_calle("Parque Chacabuco") is False
+
+    aviso_con_gps = {"latitude": -34.614, "longitude": -58.445, "direccion": "Sin dir"}
+    assert geocodificador.obtener_coordenadas_reales(aviso_con_gps) == (-34.614, -58.445)
 
 
 

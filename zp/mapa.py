@@ -8,6 +8,9 @@ import json
 from pathlib import Path
 
 
+from zp import zonas
+
+
 def _plata(v) -> str:
     if v is None:
         return "-"
@@ -22,10 +25,10 @@ def exportar_geojson(run: str, avisos: list[dict], carpeta: Path) -> Path:
     for idx, a in enumerate(avisos, start=1):
         if a.get("descartado"):
             continue
-        lat = a.get("latitude")
-        lng = a.get("longitude")
-        if not lat or not lng:
+        lat_lng = zonas.obtener_coordenadas(a)
+        if not lat_lng:
             continue
+        lat, lng = lat_lng
 
         feat = {
             "type": "Feature",
@@ -69,10 +72,10 @@ def exportar_kml(run: str, avisos: list[dict], carpeta: Path) -> Path:
     for idx, a in enumerate(avisos, start=1):
         if a.get("descartado"):
             continue
-        lat = a.get("latitude")
-        lng = a.get("longitude")
-        if not lat or not lng:
+        lat_lng = zonas.obtener_coordenadas(a)
+        if not lat_lng:
             continue
+        lat, lng = lat_lng
 
         aid = a.get("id")
         score = a.get("score")

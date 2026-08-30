@@ -59,7 +59,8 @@ CAMPOS_CSV = [
 
 # --------------------------------------------------------------------------- #
 def cmd_buscar(args):
-    run = args.run or urls.nombre_run(args.zona, args.ambientes, args.operacion)
+    zonas_list = args.zona if isinstance(args.zona, list) else [args.zona]
+    run = args.run or urls.nombre_run(zonas_list, args.ambientes, args.operacion)
     carpeta = SALIDA / run
     carpeta.mkdir(parents=True, exist_ok=True)
 
@@ -74,60 +75,63 @@ def cmd_buscar(args):
                    canal=None if args.canal == "chromium" else args.canal) as ses:
         print(f"Navegador: {ses.canal}")
         ses.calentar()
-        for amb in tandas:
-            for pagina in range(1, args.paginas + 1):
-                url = urls.construir_url(
-                    args.zona, tipos=args.tipos, operacion=args.operacion,
-                    ambientes=amb, pagina=pagina,
-                )
-                etiqueta = f"{amb[0] if amb else 'todos'} amb · pág {pagina}"
-                try:
-                    html = ses.ir(url, espera_selector='[data-qa="posting PROPERTY"]')
-                except DesafioError as e:
-                    print(f"\n  {e}")
-                    print(_ayuda_captcha(args.headless))
-                    return 1
-                except RuntimeError as e:
-                    print(f"  [{etiqueta}] {e}")
-                    break
+        for zona_item in zonas_list:
+            if len(zonas_list) > 1:
+                print(f"\n--- [ZONA] Buscando en {zona_item} ({zonas_list.index(zona_item)+1}/{len(zonas_list)}) ---")
+            for amb in tandas:
+                for pagina in range(1, args.paginas + 1):
+                    url = urls.construir_url(
+                        zona_item, tipos=args.tipos, operacion=args.operacion,
+                        ambientes=amb, pagina=pagina, precio_max=args.precio_max,
+                    )
+                    etiqueta = f"{zona_item} · {amb[0] if amb else 'todos'} amb · pág {pagina}"
+                    try:
+                        html = ses.ir(url, espera_selector='[data-qa="posting PROPERTY"]')
+                    except DesafioError as e:
+                        print(f"\n  {e}")
+                        print(_ayuda_captcha(args.headless))
+                        return 1
+                    except RuntimeError as e:
+                        print(f"  [{etiqueta}] {e}")
+                        break
 
-                # Zonaprop no tira 404 con un slug inválido: devuelve otra zona
-                # o el país entero. Se verifica contra el h1 antes de guardar nada.
-                h1 = parseo.titulo_busqueda(html) or ""
-                ok, mensaje = zonas.validar_h1(args.zona, h1)
-                if not ok:
-                    print(f"\n  ZONA INCORRECTA. {mensaje}")
-                    print("  Corté la corrida para no guardarte avisos de otro lado.")
-                    print("  Mirá `python zp.py zonas` para los slugs verificados.")
-                    return 2
-                if mensaje:
-                    print(f"  aviso: {mensaje}")
+                    # Zonaprop no tira 404 con un slug inválido: devuelve otra zona
+                    # o el país entero. Se verifica contra el h1 antes de guardar nada.
+                    h1 = parseo.titulo_busqueda(html) or ""
+                    ok, mensaje = zonas.validar_h1(zona_item, h1)
+                    if not ok:
+                        print(f"\n  ZONA INCORRECTA. {mensaje}")
+                        print("  Corté la corrida para no guardarte avisos de otro lado.")
+                        print("  Mirá `python zp.py zonas` para los slugs verificados.")
+                        return 2
+                    if mensaje:
+                        print(f"  aviso: {mensaje}")
 
-                ses.scrollear()
-                html = ses.pagina.content()
-                avisos = parseo.parsear_listado(html)
-                if not avisos:
-                    print(f"  [{etiqueta}] sin resultados, corto la paginación.")
-                    break
+                    ses.scrollear()
+                    html = ses.pagina.content()
+                    avisos = parseo.parsear_listado(html)
+                    if not avisos:
+                        print(f"  [{etiqueta}] sin resultados, corto la paginación.")
+                        break
 
-                nuevos = 0
-                for a in avisos:
-                    if a.id not in encontrados:
-                        encontrados[a.id] = a.dict()
-                        nuevos += 1
-                total = parseo.total_resultados(html)
-                print(f"  [{etiqueta}] {len(avisos)} avisos ({nuevos} nuevos) · "
-                      f"total de la búsqueda: {total}")
-                ses.esperar()
+                    nuevos = 0
+                    for a in avisos:
+                        if a.id not in encontrados:
+                            encontrados[a.id] = a.dict()
+                            nuevos += 1
+                    total = parseo.total_resultados(html)
+                    print(f"  [{etiqueta}] {len(avisos)} avisos ({nuevos} nuevos) · "
+                          f"total de la búsqueda: {total}")
+                    ses.esperar()
 
-                if total and pagina * 30 >= total:
-                    break
+                    if total and pagina * 30 >= total:
+                        break
 
     datos = list(encontrados.values())
     (carpeta / "listado.json").write_text(
         json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print(f"\n{len(datos)} avisos únicos -> {carpeta / 'listado.json'}")
+    print(f"\n{len(datos)} avisos únicos consolidados -> {carpeta / 'listado.json'}")
     return 0
 
 
@@ -368,6 +372,7 @@ def cmd_dossier(args):
     prompt_file = prompt.generar_prompt_diagnostico(args.run, con_fotos, carpeta)
     dash_file = dashboard.generar_dashboard_html(args.run, ordenados, carpeta)
     ficha_file = visita.generar_ficha_visita(args.run, con_fotos, carpeta)
+    pdf_file = carpeta / "ficha_visita.pdf"
     msg_file = visita.generar_mensajes_inmobiliarias(args.run, con_fotos, carpeta)
     geojson_file = mapa.exportar_geojson(args.run, ordenados, carpeta)
     kml_file = mapa.exportar_kml(args.run, ordenados, carpeta)
@@ -375,6 +380,8 @@ def cmd_dossier(args):
     print(f"-> {destino}")
     print(f"-> {prompt_file} (Prompt maestro para Claude/Gemini)")
     print(f"-> {dash_file} (Dashboard interactivo web con mapa Leaflet)")
+    if pdf_file.exists():
+        print(f"-> {pdf_file} (PDF listo para imprimir / llevar en celular)")
     print(f"-> {ficha_file} (Ficha forense imprimible para visitas)")
     print(f"-> {msg_file} (Mensajes prearmados para WhatsApp)")
     print(f"-> {kml_file} (Recorrido para Google Maps / Earth)")
@@ -554,7 +561,8 @@ def main():
                              "verificaciones) o 'chromium' (el de Playwright)")
 
     b = sub.add_parser("buscar", help="recorre el listado")
-    b.add_argument("--zona", required=True, help="ej: vicente-lopez, nunez, belgrano")
+    b.add_argument("--zona", nargs="+", required=True,
+                   help="una o varias zonas a rastrear (ej: --zona nunez belgrano colegiales)")
     b.add_argument("--ambientes", nargs="*", type=int, default=[2])
     b.add_argument("--tipos", nargs="*", default=["departamentos", "ph"])
     b.add_argument("--operacion", default="alquiler")

@@ -263,6 +263,12 @@ _RE_LAT_LNG = re.compile(
 _RE_LOCATION = re.compile(
     r'"location"\s*:\s*\{\s*"latitude"\s*:\s*(-?\d+\.\d+)\s*,\s*"longitude"\s*:\s*(-?\d+\.\d+)'
 )
+_RE_LAT_LNG_INV = re.compile(
+    r'"longitude"\s*:\s*(-?\d+\.\d+)\s*,\s*"latitude"\s*:\s*(-?\d+\.\d+)'
+)
+_RE_LAT_LNG_SHORT = re.compile(
+    r'"lat"\s*:\s*(-?\d+\.\d+)\s*,\s*"lng"\s*:\s*(-?\d+\.\d+)'
+)
 
 
 def parsear_detalle(html: str) -> dict:
@@ -287,13 +293,27 @@ def parsear_detalle(html: str) -> dict:
     if m:
         datos["fecha_publicacion"] = m.group(1)
 
-    m_geo = _RE_LAT_LNG.search(html) or _RE_LOCATION.search(html)
+    m_geo = _RE_LAT_LNG.search(html) or _RE_LOCATION.search(html) or _RE_LAT_LNG_SHORT.search(html)
     if m_geo:
         try:
-            datos["latitude"] = float(m_geo.group(1))
-            datos["longitude"] = float(m_geo.group(2))
+            f_lat = float(m_geo.group(1))
+            f_lng = float(m_geo.group(2))
+            if abs(f_lat) > 0 and abs(f_lng) > 0:
+                datos["latitude"] = f_lat
+                datos["longitude"] = f_lng
         except (ValueError, TypeError):
             pass
+    else:
+        m_inv = _RE_LAT_LNG_INV.search(html)
+        if m_inv:
+            try:
+                f_lng = float(m_inv.group(1))
+                f_lat = float(m_inv.group(2))
+                if abs(f_lat) > 0 and abs(f_lng) > 0:
+                    datos["latitude"] = f_lat
+                    datos["longitude"] = f_lng
+            except (ValueError, TypeError):
+                pass
 
     doc = HTMLParser(html)
     desc = doc.css_first("#longDescription") or doc.css_first('[class*="description"]')

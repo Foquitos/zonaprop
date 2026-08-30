@@ -8,6 +8,8 @@ import json
 import urllib.parse
 from pathlib import Path
 
+from zp import zonas
+
 
 def _plata(v) -> str:
     if v is None:
@@ -57,9 +59,11 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
         url = a.get("url") or "#"
         ruta_contacto = f"contactos/{aid}.jpg"
 
-        lat = a.get("latitude")
-        lng = a.get("longitude")
-        if lat and lng:
+        lat_lng = zonas.obtener_coordenadas(a)
+        lat = lat_lng[0] if lat_lng else None
+        lng = lat_lng[1] if lat_lng else None
+
+        if lat is not None and lng is not None:
             map_points.append({
                 "id": str(aid),
                 "rank": idx,
@@ -100,8 +104,10 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
 
         preguntas_li = "".join(f"<li>{html.escape(p)}</li>" for p in (a.get("preguntas_visita") or []))
 
+        onclick_attr = f"onclick=\"focusMap('{aid}', {lat}, {lng})\"" if lat is not None and lng is not None else ""
+
         filas_html.append(f"""
-        <tr class="item-row" id="row-{aid}" onclick="focusMap('{aid}', {lat or 'null'}, {lng or 'null'})">
+        <tr class="item-row" id="row-{aid}" {onclick_attr}>
           <td class="col-rank">#{idx}</td>
           <td class="col-score"><span class="score-pill">{score}</span></td>
           <td class="col-dir">
@@ -156,6 +162,9 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
 
     filas_str = "\n".join(filas_html)
     points_json = json.dumps(map_points)
+    map_section = '<div id="map"></div>' if map_points else (
+        '<div class="map-hint">📍 <em>Las coordenadas en el mapa se cargarán automáticamente al ejecutar el paso <code>fotos</code>.</em></div>'
+    )
 
     doc_html = f"""<!DOCTYPE html>
 <html lang="es">
@@ -324,8 +333,7 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
     </div>
 
     <!-- Mapa Interactivo Leaflet -->
-    <div id="map"></div>
-
+    {map_section}
     <div class="table-container">
       <table>
         <thead>
