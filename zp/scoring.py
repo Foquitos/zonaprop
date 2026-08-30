@@ -643,13 +643,15 @@ def parsear_contrato(texto: str) -> dict:
 
     # 4. Depósito
     deposito = "No especifica"
-    m_usd = re.search(r"dep[oó]sito.*?(\b(?:u\$s|usd|\$)\s*[\d.]+)", t)
+    m_usd = re.search(r"dep[oó]sito.*?(?:u\$s|usd|\$)\s*(\d[\d.]*)", t)
     m_mes = re.search(r"(\d+\s*mes(?:es)?)\s+(?:de\s+dep[oó]sito|dep[oó]sito)|dep[oó]sito.*?(\d+\s*mes(?:es)?)", t)
     mes_txt = (m_mes.group(1) or m_mes.group(2)) if m_mes else ""
     if m_usd and mes_txt:
-        deposito = f"{mes_txt.strip().upper()} ({m_usd.group(1).strip().upper()})"
+        moneda_match = re.search(r"(u\$s|usd|\$)", t[m_usd.start():m_usd.end()])
+        mon_str = moneda_match.group(1).upper() if moneda_match else "$"
+        deposito = f"{mes_txt.strip().upper()} ({mon_str} {m_usd.group(1).strip()})"
     elif m_usd:
-        deposito = m_usd.group(1).strip().upper()
+        deposito = f"USD {m_usd.group(1).strip()}" if "u$s" in t or "usd" in t else f"${m_usd.group(1).strip()}"
     elif mes_txt:
         deposito = mes_txt.strip().upper()
 
@@ -789,23 +791,42 @@ def calcular_caja_inicial(aviso: dict, dolar: float = 1450.0) -> tuple[float, st
 
     adelanto = alquiler
     dep_txt = (aviso.get("deposito_monto") or "").upper()
-    m_usd = re.search(r"(?:U\$S|USD)\s*([\d.]+)", dep_txt)
-    m_ars = re.search(r"\$\s*([\d.]+)", dep_txt)
+    m_usd = re.search(r"(?:U\$S|USD)\s*(\d[\d.]*)", dep_txt)
+    m_ars = re.search(r"\$\s*(\d[\d.]*)", dep_txt)
     m_meses = re.search(r"(\d+)\s*MES", dep_txt)
 
+    deposito = None
+    dep_label = None
+
     if m_usd:
-        num_usd = float(m_usd.group(1).replace(".", ""))
-        deposito = num_usd * dolar
-        dep_label = f"Depósito USD {num_usd:,.0f}".replace(",", ".")
-    elif m_ars:
-        num_ars = float(m_ars.group(1).replace(".", ""))
-        deposito = num_ars
-        dep_label = f"Depósito {_plata(deposito)}"
-    elif m_meses:
-        cant_meses = int(m_meses.group(1))
-        deposito = cant_meses * alquiler
-        dep_label = f"Depósito ({cant_meses} meses)"
-    else:
+        try:
+            num_str = m_usd.group(1).replace(".", "").strip()
+            if num_str:
+                num_usd = float(num_str)
+                deposito = num_usd * dolar
+                dep_label = f"Depósito USD {num_usd:,.0f}".replace(",", ".")
+        except Exception:
+            pass
+
+    if deposito is None and m_ars:
+        try:
+            num_str = m_ars.group(1).replace(".", "").strip()
+            if num_str:
+                num_ars = float(num_str)
+                deposito = num_ars
+                dep_label = f"Depósito {_plata(deposito)}"
+        except Exception:
+            pass
+
+    if deposito is None and m_meses:
+        try:
+            cant_meses = int(m_meses.group(1))
+            deposito = cant_meses * alquiler
+            dep_label = f"Depósito ({cant_meses} meses)"
+        except Exception:
+            pass
+
+    if deposito is None:
         deposito = alquiler
         dep_label = "Depósito (1 mes est.)"
 
