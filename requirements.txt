@@ -1,0 +1,4 @@
+playwright>=1.47
+selectolax>=0.3.21
+requests>=2.32
+Pillow>=10.4
