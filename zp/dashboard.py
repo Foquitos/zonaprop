@@ -1,10 +1,11 @@
-"""Generador de Dashboard HTML interactivo (resumen.html) para visualización de candidatos.
+"""Generador de Dashboard HTML interactivo (resumen.html) con Mapa Leaflet, WhatsApp y Métricas.
 """
 
 from __future__ import annotations
 
 import html
 import json
+import urllib.parse
 from pathlib import Path
 
 
@@ -17,7 +18,7 @@ def _plata(v) -> str:
 
 
 def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
-    """Genera un archivo resumen.html con un dashboard visual responsivo."""
+    """Genera un archivo resumen.html con un dashboard visual responsivo y mapa interactivo."""
     vivos = [a for a in avisos if not a.get("descartado")]
 
     # Métricas clave
@@ -26,6 +27,9 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
     mediana_costo = sorted(costos)[len(costos) // 2] if costos else 0
     m2_refs = [a["costo_m2"] for a in vivos if a.get("costo_m2")]
     mejor_m2 = min(m2_refs) if m2_refs else 0
+
+    # Puntos para el mapa Leaflet
+    map_points = []
 
     filas_html = []
     for idx, a in enumerate(vivos, start=1):
@@ -47,10 +51,34 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
         caja_entrada = html.escape(a.get("caja_inicial_resumen") or "-")
         caja_total = _plata(a.get("caja_inicial_total"))
         entorno = html.escape(a.get("entorno_tipo") or "")
+        proy_txt = html.escape(a.get("proyeccion_resumen") or "No calculada")
         dias = a.get("dias_publicado")
         dias_txt = f"{dias} días" if dias is not None else "Reciente"
         url = a.get("url") or "#"
         ruta_contacto = f"contactos/{aid}.jpg"
+
+        lat = a.get("latitude")
+        lng = a.get("longitude")
+        if lat and lng:
+            map_points.append({
+                "id": str(aid),
+                "rank": idx,
+                "score": score,
+                "direccion": a.get("direccion") or "Sin dirección",
+                "costo": costo,
+                "m2": f"{m2_tot} m²",
+                "url": url,
+                "contacto": ruta_contacto,
+                "lat": float(lat),
+                "lng": float(lng),
+            })
+
+        # Mensaje de WhatsApp URL-encoded
+        wa_msg = (
+            f"Hola! Te consulto por el alquiler en {a.get('direccion', '')} (Ref Zonaprop #{aid}). "
+            f"¿Sigue disponible? Cuento con garantía y recibos de sueldo listos para coordinar visita. Gracias!"
+        )
+        wa_link = f"https://api.whatsapp.com/send?text={urllib.parse.quote(wa_msg)}"
 
         # Badges
         badges = []
@@ -70,11 +98,10 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
         if not a.get("m2_confiable"):
             badges.append('<span class="badge badge-orange">TERRAZA</span>')
 
-        # Preguntas clave
         preguntas_li = "".join(f"<li>{html.escape(p)}</li>" for p in (a.get("preguntas_visita") or []))
 
         filas_html.append(f"""
-        <tr class="item-row" id="row-{aid}">
+        <tr class="item-row" id="row-{aid}" onclick="focusMap('{aid}', {lat or 'null'}, {lng or 'null'})">
           <td class="col-rank">#{idx}</td>
           <td class="col-score"><span class="score-pill">{score}</span></td>
           <td class="col-dir">
@@ -102,6 +129,7 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
           <td class="col-acciones">
             <a href="{url}" target="_blank" class="btn btn-outline">Zonaprop ↗</a>
             <a href="{ruta_contacto}" target="_blank" class="btn btn-primary">Fotos 🖼️</a>
+            <a href="{wa_link}" target="_blank" class="btn btn-wa">WhatsApp 💬</a>
           </td>
         </tr>
         <tr class="details-row" id="details-{aid}">
@@ -113,9 +141,11 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
                   <p>{entorno}</p>
                   <h4>💰 Desglose Caja Inicial</h4>
                   <p>{caja_entrada}</p>
+                  <h4>📈 Evolución Cuota a 24 Meses (IPC 3% proyectado)</h4>
+                  <p>{proy_txt}</p>
                 </div>
                 <div>
-                  <h4>🔍 Preguntas Clave para Visita</h4>
+                  <h4>🔍 Preguntas Clave para la Visita</h4>
                   <ul>{preguntas_li}</ul>
                 </div>
               </div>
@@ -125,6 +155,7 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
         """)
 
     filas_str = "\n".join(filas_html)
+    points_json = json.dumps(map_points)
 
     doc_html = f"""<!DOCTYPE html>
 <html lang="es">
@@ -132,6 +163,7 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard Candidatos · {html.escape(run)}</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
   <style>
     :root {{
       --bg: #0f172a;
@@ -144,6 +176,7 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
       --accent: #f59e0b;
       --success: #10b981;
       --danger: #ef4444;
+      --wa: #22c55e;
     }}
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
@@ -173,6 +206,16 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
     }}
     .kpi-title {{ font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }}
     .kpi-value {{ font-size: 24px; font-weight: 700; color: #fff; margin-top: 4px; }}
+
+    /* Map */
+    #map {{
+      height: 380px;
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      margin-bottom: 24px;
+      z-index: 1;
+    }}
 
     /* Table */
     .table-container {{
@@ -229,25 +272,27 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
     /* Buttons */
     .btn {{
       display: inline-block;
-      padding: 6px 12px;
+      padding: 5px 10px;
       border-radius: 6px;
       font-size: 12px;
       font-weight: 600;
       text-decoration: none;
       transition: all 0.15s ease;
       text-align: center;
-      margin-bottom: 4px;
+      margin: 2px;
     }}
     .btn-primary {{ background: var(--primary); color: #0f172a; }}
     .btn-primary:hover {{ background: var(--primary-hover); }}
     .btn-outline {{ background: transparent; border: 1px solid var(--border); color: var(--text); }}
     .btn-outline:hover {{ background: var(--border); }}
+    .btn-wa {{ background: #15803d; color: #f0fdf4; }}
+    .btn-wa:hover {{ background: #16a34a; }}
 
     /* Expandable Details */
     .details-row {{ background: #131d31; }}
     .details-content {{ padding: 12px 16px; font-size: 13px; }}
     .details-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }}
-    .details-grid h4 {{ font-size: 13px; color: var(--primary); margin-bottom: 4px; text-transform: uppercase; }}
+    .details-grid h4 {{ font-size: 13px; color: var(--primary); margin-top: 8px; margin-bottom: 2px; text-transform: uppercase; }}
     .details-grid ul {{ margin-left: 18px; color: #cbd5e1; }}
     .details-grid li {{ margin-bottom: 4px; }}
   </style>
@@ -256,7 +301,7 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
   <div class="container">
     <header>
       <h1>Candidatos · {html.escape(run)}</h1>
-      <div class="subtitle">Ranking y análisis forense pre-inspección con LLM ({len(vivos)} propiedades)</div>
+      <div class="subtitle">Ranking, mapa satelital y análisis forense pre-inspección con LLM ({len(vivos)} propiedades)</div>
     </header>
 
     <div class="kpi-grid">
@@ -278,6 +323,9 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
       </div>
     </div>
 
+    <!-- Mapa Interactivo Leaflet -->
+    <div id="map"></div>
+
     <div class="table-container">
       <table>
         <thead>
@@ -298,10 +346,65 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
       </table>
     </div>
   </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    const points = {points_json};
+    let map = null;
+    let markers = {{}};
+
+    if (points.length > 0) {{
+      const first = points[0];
+      map = L.map('map').setView([first.lat, first.lng], 14);
+
+      L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }}).addTo(map);
+
+      const bounds = [];
+      points.forEach(p => {{
+        bounds.push([p.lat, p.lng]);
+        const color = p.score >= 70 ? '#10b981' : (p.score >= 50 ? '#f59e0b' : '#64748b');
+
+        const marker = L.circleMarker([p.lat, p.lng], {{
+          radius: 9,
+          fillColor: color,
+          color: '#fff',
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.9
+        }}).addTo(map);
+
+        const popupContent = `
+          <div style="font-family: sans-serif; font-size: 13px;">
+            <strong style="color: #0f172a;">#${{p.rank}} · Score ${{p.score}}</strong><br>
+            <b>${{p.direccion}}</b><br>
+            <span>${{p.costo}} · ${{p.m2}}</span><br>
+            <div style="margin-top: 6px;">
+              <a href="${{p.url}}" target="_blank" style="color: #0284c7; font-weight: 600;">Zonaprop ↗</a> |
+              <a href="${{p.contacto}}" target="_blank" style="color: #0284c7; font-weight: 600;">Fotos 🖼️</a>
+            </div>
+          </div>
+        `;
+        marker.bindPopup(popupContent);
+        markers[p.id] = marker;
+      }});
+
+      if (bounds.length > 1) {{
+        map.fitBounds(bounds, {{ padding: [30, 30] }});
+      }}
+    }}
+
+    function focusMap(id, lat, lng) {{
+      if (map && lat && lng && markers[id]) {{
+        map.setView([lat, lng], 16, {{ animate: true }});
+        markers[id].openPopup();
+      }}
+    }}
+  </script>
 </body>
 </html>
 """
     destino = carpeta / "resumen.html"
     destino.write_text(doc_html.strip(), encoding="utf-8")
     return destino
-

@@ -364,13 +364,20 @@ def cmd_dossier(args):
     destino = carpeta / "dossier.md"
     destino.write_text("\n".join(lineas), encoding="utf-8")
 
-    from zp import prompt, dashboard
+    from zp import dashboard, mapa, prompt, visita
     prompt_file = prompt.generar_prompt_diagnostico(args.run, con_fotos, carpeta)
     dash_file = dashboard.generar_dashboard_html(args.run, ordenados, carpeta)
+    ficha_file = visita.generar_ficha_visita(args.run, con_fotos, carpeta)
+    msg_file = visita.generar_mensajes_inmobiliarias(args.run, con_fotos, carpeta)
+    geojson_file = mapa.exportar_geojson(args.run, ordenados, carpeta)
+    kml_file = mapa.exportar_kml(args.run, ordenados, carpeta)
 
     print(f"-> {destino}")
     print(f"-> {prompt_file} (Prompt maestro para Claude/Gemini)")
-    print(f"-> {dash_file} (Dashboard interactivo web)")
+    print(f"-> {dash_file} (Dashboard interactivo web con mapa Leaflet)")
+    print(f"-> {ficha_file} (Ficha forense imprimible para visitas)")
+    print(f"-> {msg_file} (Mensajes prearmados para WhatsApp)")
+    print(f"-> {kml_file} (Recorrido para Google Maps / Earth)")
     print(f"Pasale a Claude: {prompt_file} + {destino} + la carpeta {carpeta / 'contactos'}")
     return 0
 

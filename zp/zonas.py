@@ -79,28 +79,79 @@ GBA_NORTE = [
 ]
 
 # --------------------------------------------------------------------------- #
-# CABA
+# CABA (Todos los 48 barrios oficiales + subzonas principales)
 # --------------------------------------------------------------------------- #
 CABA = [
     Zona("capital-federal", "CABA (toda)", "CABA, Capital Federal", "region",
-         nota="Más de 16.000 avisos. Conviene bajar a barrio."),
+         nota="Más de 16.000 avisos. Conviene filtrar por barrio específico."),
 
+    # --- Corredor Norte ---
     Zona("nunez", "Núñez", "Núñez, CABA", "barrio", "capital-federal"),
-    Zona("belgrano", "Belgrano", "Belgrano, CABA", "barrio", "capital-federal",
-         nota="Zonaprop no separa Belgrano C, R ni Chico: los tres caen acá."),
+    Zona("belgrano", "Belgrano", "Belgrano, CABA", "barrio", "capital-federal"),
+    Zona("belgrano-c", "Belgrano C", "Belgrano, CABA", "subbarrio", "belgrano"),
+    Zona("belgrano-r", "Belgrano R", "Belgrano, CABA", "subbarrio", "belgrano"),
+    Zona("bajo-belgrano", "Bajo Belgrano", "Belgrano, CABA", "subbarrio", "belgrano"),
+    Zona("las-canitas", "Las Cañitas", "Palermo, CABA", "subbarrio", "palermo"),
     Zona("colegiales", "Colegiales", "Colegiales, CABA", "barrio", "capital-federal"),
     Zona("saavedra", "Saavedra", "Saavedra, CABA", "barrio", "capital-federal"),
     Zona("coghlan", "Coghlan", "Coghlan, CABA", "barrio", "capital-federal"),
     Zona("villa-urquiza", "Villa Urquiza", "Villa Urquiza, CABA", "barrio", "capital-federal"),
+    Zona("villa-pueyrredon", "Villa Pueyrredón", "Villa Pueyrredón, CABA", "barrio", "capital-federal"),
     Zona("chacarita", "Chacarita", "Chacarita, CABA", "barrio", "capital-federal"),
+
+    # --- Palermo, Recoleta y Eje Este ---
     Zona("palermo", "Palermo", "Palermo, CABA", "barrio", "capital-federal"),
-    Zona("villa-crespo", "Villa Crespo", "Villa Crespo, CABA", "barrio", "capital-federal"),
-    Zona("caballito", "Caballito", "Caballito, CABA", "barrio", "capital-federal"),
+    Zona("palermo-soho", "Palermo Soho", "Palermo, CABA", "subbarrio", "palermo"),
+    Zona("palermo-hollywood", "Palermo Hollywood", "Palermo, CABA", "subbarrio", "palermo"),
+    Zona("palermo-chico", "Palermo Chico", "Palermo, CABA", "subbarrio", "palermo"),
     Zona("recoleta", "Recoleta", "Recoleta, CABA", "barrio", "capital-federal"),
+    Zona("barrio-norte-capital-federal", "Barrio Norte", "Barrio Norte, CABA", "subbarrio", "recoleta"),
+    Zona("retiro", "Retiro", "Retiro, CABA", "barrio", "capital-federal"),
+    Zona("puerto-madero", "Puerto Madero", "Puerto Madero, CABA", "barrio", "capital-federal"),
+
+    # --- Centro y Casco Histórico ---
+    Zona("san-telmo", "San Telmo", "San Telmo, CABA", "barrio", "capital-federal"),
+    Zona("monserrat", "Monserrat", "Monserrat, CABA", "barrio", "capital-federal"),
+    Zona("san-nicolas", "San Nicolás (Centro)", "San Nicolás, CABA", "barrio", "capital-federal"),
+    Zona("balvanera", "Balvanera (Once / Abasto)", "Balvanera, CABA", "barrio", "capital-federal"),
+    Zona("san-cristobal", "San Cristóbal", "San Cristóbal, CABA", "barrio", "capital-federal"),
+    Zona("constitucion", "Constitución", "Constitución, CABA", "barrio", "capital-federal"),
+
+    # --- Centro Geográfico y Noroeste ---
+    Zona("caballito", "Caballito", "Caballito, CABA", "barrio", "capital-federal"),
     Zona("almagro", "Almagro", "Almagro, CABA", "barrio", "capital-federal"),
+    Zona("boedo", "Boedo", "Boedo, CABA", "barrio", "capital-federal"),
+    Zona("villa-crespo", "Villa Crespo", "Villa Crespo, CABA", "barrio", "capital-federal"),
+    Zona("parque-chas", "Parque Chas", "Parque Chas, CABA", "barrio", "capital-federal"),
+    Zona("villa-ortuzar", "Villa Ortúzar", "Villa Ortúzar, CABA", "barrio", "capital-federal"),
+    Zona("agronomia", "Agronomía", "Agronomía, CABA", "barrio", "capital-federal"),
+    Zona("la-paternal", "La Paternal", "La Paternal, CABA", "barrio", "capital-federal"),
+    Zona("villa-general-mitre", "Villa General Mitre", "Villa General Mitre, CABA", "barrio", "capital-federal"),
+    Zona("villa-santa-rita", "Villa Santa Rita", "Villa Santa Rita, CABA", "barrio", "capital-federal"),
+    Zona("villa-del-parque", "Villa del Parque", "Villa del Parque, CABA", "barrio", "capital-federal"),
     Zona("villa-devoto", "Villa Devoto", "Villa Devoto, CABA", "barrio", "capital-federal"),
-    Zona("villa-pueyrredon", "Villa Pueyrredón", "Villa Pueyrredón, CABA",
-         "barrio", "capital-federal"),
+    Zona("monte-castro", "Monte Castro", "Monte Castro, CABA", "barrio", "capital-federal"),
+
+    # --- Zona Oeste ---
+    Zona("flores", "Flores", "Flores, CABA", "barrio", "capital-federal"),
+    Zona("floresta", "Floresta", "Floresta, CABA", "barrio", "capital-federal"),
+    Zona("parque-chacabuco", "Parque Chacabuco", "Parque Chacabuco, CABA", "barrio", "capital-federal"),
+    Zona("versalles", "Versalles", "Versalles, CABA", "barrio", "capital-federal"),
+    Zona("villa-real", "Villa Real", "Villa Real, CABA", "barrio", "capital-federal"),
+    Zona("villa-luro", "Villa Luro", "Villa Luro, CABA", "barrio", "capital-federal"),
+    Zona("velez-sarsfield", "Vélez Sársfield", "Vélez Sársfield, CABA", "barrio", "capital-federal"),
+    Zona("liniers", "Liniers", "Liniers, CABA", "barrio", "capital-federal"),
+    Zona("mataderos", "Mataderos", "Mataderos, CABA", "barrio", "capital-federal"),
+    Zona("parque-avellaneda", "Parque Avellaneda", "Parque Avellaneda, CABA", "barrio", "capital-federal"),
+
+    # --- Zona Sur ---
+    Zona("barracas", "Barracas", "Barracas, CABA", "barrio", "capital-federal"),
+    Zona("la-boca", "La Boca", "La Boca, CABA", "barrio", "capital-federal"),
+    Zona("parque-patricios", "Parque Patricios", "Parque Patricios, CABA", "barrio", "capital-federal"),
+    Zona("nueva-pompeya", "Nueva Pompeya", "Nueva Pompeya, CABA", "barrio", "capital-federal"),
+    Zona("villa-soldati", "Villa Soldati", "Villa Soldati, CABA", "barrio", "capital-federal"),
+    Zona("villa-lugano", "Villa Lugano", "Villa Lugano, CABA", "barrio", "capital-federal"),
+    Zona("villa-riachuelo", "Villa Riachuelo", "Villa Riachuelo, CABA", "barrio", "capital-federal"),
 ]
 
 TODAS = {z.slug: z for z in (GBA_NORTE + CABA)}
@@ -116,13 +167,33 @@ GRUPOS = [
         "san-isidro", "martinez", "villa-adelina", "general-san-martin",
         "san-fernando", "tigre", "gba-norte",
     ]),
-    ("CABA — corredor norte", [
-        "nunez", "belgrano", "colegiales", "saavedra", "coghlan",
+    ("CABA — Corredor Norte", [
+        "nunez", "belgrano", "belgrano-c", "belgrano-r", "bajo-belgrano",
+        "las-canitas", "colegiales", "saavedra", "coghlan",
         "villa-urquiza", "villa-pueyrredon", "chacarita",
     ]),
-    ("CABA — resto", [
-        "palermo", "villa-crespo", "caballito", "recoleta", "almagro",
-        "villa-devoto", "capital-federal",
+    ("CABA — Palermo, Recoleta y Eje Este", [
+        "palermo", "palermo-soho", "palermo-hollywood", "palermo-chico",
+        "recoleta", "barrio-norte-capital-federal", "retiro", "puerto-madero",
+    ]),
+    ("CABA — Centro y Casco Histórico", [
+        "san-telmo", "monserrat", "san-nicolas", "balvanera", "san-cristobal", "constitucion",
+    ]),
+    ("CABA — Centro Geográfico y Noroeste", [
+        "caballito", "almagro", "boedo", "villa-crespo", "parque-chas",
+        "villa-ortuzar", "agronomia", "la-paternal", "villa-general-mitre",
+        "villa-santa-rita", "villa-del-parque", "villa-devoto", "monte-castro",
+    ]),
+    ("CABA — Zona Oeste", [
+        "flores", "floresta", "parque-chacabuco", "versalles", "villa-real",
+        "villa-luro", "velez-sarsfield", "liniers", "mataderos", "parque-avellaneda",
+    ]),
+    ("CABA — Zona Sur", [
+        "barracas", "la-boca", "parque-patricios", "nueva-pompeya",
+        "villa-soldati", "villa-lugano", "villa-riachuelo",
+    ]),
+    ("CABA — Toda la Ciudad", [
+        "capital-federal",
     ]),
 ]
 

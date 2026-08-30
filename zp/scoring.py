@@ -844,6 +844,52 @@ def calcular_caja_inicial(aviso: dict, dolar: float = 1450.0) -> tuple[float, st
     return total, resumen, desglose
 
 
+def simular_evolucion_alquiler(aviso: dict, dolar: float = 1450.0, inflacion_mensual: float = 0.03) -> dict:
+    """Proyecta la cuota del alquiler a 24 meses según periodicidad de ajuste e IPC mensual estimado."""
+    alq = alquiler_en_pesos(aviso, dolar) or 0.0
+    if alq <= 0:
+        return {}
+
+    frec = (aviso.get("ajuste_frecuencia") or "").lower()
+    if "cuatrimestral" in frec or "4 meses" in frec:
+        meses_salto = 4
+    elif "semestral" in frec or "6 meses" in frec:
+        meses_salto = 6
+    elif "anual" in frec or "12 meses" in frec or "1 año" in frec:
+        meses_salto = 12
+    else:
+        meses_salto = 3
+
+    cuotas = []
+    precio_actual = alq
+    for mes in range(1, 25):
+        if mes > 1 and (mes - 1) % meses_salto == 0:
+            factor = (1.0 + inflacion_mensual) ** meses_salto
+            precio_actual *= factor
+        cuotas.append(precio_actual)
+
+    total_2_anios = sum(cuotas)
+    mes_1 = cuotas[0]
+    mes_6 = cuotas[5]
+    mes_12 = cuotas[11]
+    mes_24 = cuotas[23]
+
+    resumen = (
+        f"Mes 1: {_plata(mes_1)} -> Mes 6: {_plata(mes_6)} -> Mes 12: {_plata(mes_12)} -> Mes 24: {_plata(mes_24)} "
+        f"(Total 2 años estimado: ~{_plata(total_2_anios)} con IPC 3% mensual)"
+    )
+
+    return {
+        "mes_1": mes_1,
+        "mes_6": mes_6,
+        "mes_12": mes_12,
+        "mes_24": mes_24,
+        "total_2_anios": total_2_anios,
+        "meses_salto": meses_salto,
+        "resumen": resumen,
+    }
+
+
 def detectar_alerta_gran_angular(aviso: dict, texto: str) -> str | None:
     """Detecta si hay ambientes con medidas reducidas pero fotos potencialmente sobredimensionadas."""
     t = _norm(texto)
@@ -1017,6 +1063,11 @@ def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float =
         a["caja_inicial_total"] = caja_tot
         a["caja_inicial_resumen"] = caja_res
         a["caja_inicial_desglose"] = caja_des
+
+        # --- simulación de inflación / evolución de cuota a 24 meses ---
+        proy = simular_evolucion_alquiler(a, dolar=dolar)
+        a["proyeccion_alquiler"] = proy
+        a["proyeccion_resumen"] = proy.get("resumen", "")
 
         # --- alerta gran angular ---
         alerta_ga = detectar_alerta_gran_angular(a, texto)

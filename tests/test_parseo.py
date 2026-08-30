@@ -563,18 +563,57 @@ def test_generador_prompt_llm(tmp_path):
     assert "Perito Arquitecto" in texto
 
 
-def test_generador_dashboard_html(tmp_path):
-    """Verifica que el generador de dashboard genere resumen.html con tabla."""
-    from zp import dashboard
+def test_simular_evolucion_alquiler():
+    """Calcula la evolución de la cuota con saltos trimestrales y suma total."""
+    aviso = {"precio": 1000000, "moneda": "ARS", "ajuste_frecuencia": "Trimestral"}
+    sim = scoring.simular_evolucion_alquiler(aviso, inflacion_mensual=0.03)
+    assert sim["mes_1"] == 1000000.0
+    assert sim["mes_6"] > 1000000.0
+    assert sim["mes_24"] > sim["mes_12"] > sim["mes_1"]
+    assert sim["total_2_anios"] > 24000000.0
+
+
+def test_generar_ficha_visita_y_mensajes(tmp_path):
+    """Verifica que se generen ficha_visita.md y mensajes_inmobiliarias.txt."""
+    from zp import visita
     avisos = [{
-        "id": "123", "score": 85.0, "tipo": "ph", "costo_mensual": 800000,
-        "precio": 800000, "moneda": "ARS", "m2_total": 50, "direccion": "Laprida 1000",
-        "descartado": False
+        "id": "59658007", "score": 85.0, "tipo": "ph", "costo_mensual": 800000,
+        "direccion": "Laprida 4500", "ambientes": 3, "preguntas_visita": ["¿Presión de agua?"]
     }]
-    h = dashboard.generar_dashboard_html("test-run", avisos, tmp_path)
-    assert h.exists()
-    contenido = h.read_text(encoding="utf-8")
-    assert "Dashboard Candidatos" in contenido
-    assert "Laprida 1000" in contenido
+    fv = visita.generar_ficha_visita("test-run", avisos, tmp_path)
+    msg = visita.generar_mensajes_inmobiliarias("test-run", avisos, tmp_path)
+    assert fv.exists()
+    assert msg.exists()
+    assert "PROTOCOLO FORENSE" in fv.read_text(encoding="utf-8")
+    assert "59658007" in msg.read_text(encoding="utf-8")
+
+
+def test_exportar_mapas_geojson_kml(tmp_path):
+    """Verifica la exportación de candidatos.geojson y recorrido_visitas.kml."""
+    from zp import mapa
+    avisos = [{
+        "id": "1", "score": 80.0, "latitude": -34.54, "longitude": -58.48,
+        "costo_mensual": 800000, "direccion": "Laprida 1000", "descartado": False
+    }]
+    gj = mapa.exportar_geojson("test-run", avisos, tmp_path)
+    kml = mapa.exportar_kml("test-run", avisos, tmp_path)
+    assert gj.exists()
+    assert kml.exists()
+    assert "FeatureCollection" in gj.read_text(encoding="utf-8")
+    assert "<kml" in kml.read_text(encoding="utf-8")
+
+
+def test_catalogo_completo_caba():
+    """Verifica que estén todos los barrios clave de CABA."""
+    barrios_clave = [
+        "palermo", "recoleta", "belgrano", "caballito", "almagro", "villa-crespo",
+        "san-telmo", "puerto-madero", "villa-devoto", "villa-urquiza", "flores",
+        "barracas", "boedo", "chacarita", "saavedra", "nunez", "liniers"
+    ]
+    for b in barrios_clave:
+        z = zonas.obtener(b)
+        assert z is not None, f"Falta el barrio '{b}' en el catálogo de CABA"
+        assert z.slug == b
+
 
 
