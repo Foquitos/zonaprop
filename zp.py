@@ -46,6 +46,7 @@ CAMPOS_CSV = [
     "expensas", "expensas_estimadas", "expensas_imputadas",
     "costo_mensual", "costo_m2", "costo_m2_ranking",
     "m2_total", "m2_cubierto", "m2_cubierto_estimado", "m2_confiable",
+    "datos_sospechosos", "mediana_usada", "mediana_origen",
     "ambientes", "dormitorios", "banos", "cocheras",
     "antiguedad_anios", "antiguedad_label", "estado_unidad",
     "orientacion", "disposicion", "luminosidad", "direccion", "barrio",

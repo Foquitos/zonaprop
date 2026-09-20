@@ -953,6 +953,51 @@ def detectar_bajas_precio(avisos: list[dict], historial: dict | None = None):
                 )
 
 
+def detectar_datos_sospechosos(aviso: dict, mediana: float | None = None) -> list[str]:
+    """Detecta inconsistencias o errores de parseo en superficie o precio.
+
+    Dos chequeos forenses:
+      a) m2_total/ambientes fuera de [12, 60] m² por ambiente. Si falta m2_total
+         o ambientes, o ambientes es 0, no se marca (faltante no es implausible).
+      b) costo_m2_ranking fuera de [0.25x, 4x] la mediana. Si falta el dato o
+         la mediana es None o 0, no se marca.
+    """
+    motivos: list[str] = []
+
+    # a) m2_total/ambientes fuera de [12, 60] m² por ambiente
+    m2_tot = aviso.get("m2_total")
+    amb = aviso.get("ambientes")
+    if m2_tot is not None and amb is not None:
+        try:
+            m2_val = float(m2_tot)
+            amb_val = float(amb)
+            if amb_val > 0 and m2_val > 0:
+                m2_por_amb = m2_val / amb_val
+                if m2_por_amb < 12 or m2_por_amb > 60:
+                    m2_txt = f"{int(m2_val)}" if m2_val == int(m2_val) else f"{m2_val:.1f}"
+                    amb_txt = f"{int(amb_val)} ambiente" if amb_val == 1 else f"{int(amb_val)} ambientes"
+                    motivos.append(f"declara {m2_txt} m² para {amb_txt}")
+        except (TypeError, ValueError):
+            pass
+
+    # b) costo_m2_ranking fuera de [0.25x, 4x] la mediana de referencia
+    c_m2 = aviso.get("costo_m2_ranking")
+    if c_m2 is None:
+        c_m2 = aviso.get("costo_m2")
+    if c_m2 is not None and mediana is not None and mediana > 0:
+        try:
+            c_m2_val = float(c_m2)
+            if c_m2_val < 0.25 * mediana or c_m2_val > 4.0 * mediana:
+                motivos.append(
+                    f"precio por m² anómalo ({_plata(c_m2_val)}/m² vs mediana {_plata(mediana)}/m²)"
+                )
+        except (TypeError, ValueError):
+            pass
+
+    aviso["datos_sospechosos"] = motivos
+    return motivos
+
+
 def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float = 1450.0,
             historial: dict | None = None) -> list[dict]:
     """Agrega score y columnas explicativas a cada aviso. Devuelve la lista ordenada."""
@@ -1005,9 +1050,91 @@ def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float =
         exp = a.get("expensas_estimadas")
         a["ratio_expensas"] = (exp / alq) if (alq and exp) else None
 
-    # 2) Referencia de mercado: mediana del $/m² de la búsqueda.
-    ref = [a["costo_m2_ranking"] for a in avisos if a.get("costo_m2_ranking")]
-    mediana = statistics.median(ref) if ref else None
+    # 2) Referencia de mercado: mediana del $/m² de la búsqueda y control de anomalías.
+    #
+    # ¿Por qué dos pasadas (y no una sola, ni iterativo ni recursivo)?
+    # El gate de precio/m² (b) requiere comparar contra la mediana de mercado, pero
+    # si calculamos la mediana con todos los avisos crudos, errores groseros de
+    # parseo (como 2 amb declarando 2.769 m² o alquileres de $6.000) envenenan la
+    # referencia misma que necesitamos para evaluar.
+    # Por eso se resuelve en dos pasadas determinísticas:
+    #   (a) Mediana provisional usando SOLO el gate geométrico (m²/ambiente en [12, 60]),
+    #       el cual es intrínseco a cada aviso y no depende de ninguna mediana externa.
+    #   (b) Con esa mediana provisional se evalúa el gate de precio/m² (fuera de [0.25x, 4x]).
+    #   (c) Con todos los sospechosos identificados (por gate a o b), se calcula la
+    #       mediana definitiva por estrato de ambientes (o global con menos de 5 avisos)
+    #       excluyendo a TODOS los sospechosos.
+
+    # (a) Gate geométrico independiente + cálculo de mediana provisional
+    sospechosos_geo = set()
+    for a in avisos:
+        motivos_geo = detectar_datos_sospechosos(a, mediana=None)
+        if motivos_geo:
+            sospechosos_geo.add(id(a))
+
+    prov_estratos: dict[int, list[float]] = {}
+    prov_global: list[float] = []
+    for a in avisos:
+        if id(a) not in sospechosos_geo and a.get("costo_m2_ranking"):
+            c = a["costo_m2_ranking"]
+            prov_global.append(c)
+            amb = _entero(a.get("ambientes"))
+            if amb and amb > 0:
+                prov_estratos.setdefault(amb, []).append(c)
+
+    med_prov_global = statistics.median(prov_global) if prov_global else None
+    med_prov_estratos = {
+        amb: statistics.median(vals)
+        for amb, vals in prov_estratos.items()
+        if len(vals) >= 5
+    }
+
+    # (b) Evaluación del gate de precio/m² con la referencia provisional
+    for a in avisos:
+        amb = _entero(a.get("ambientes"))
+        if amb and amb in med_prov_estratos:
+            med_ref_prov = med_prov_estratos[amb]
+        else:
+            med_ref_prov = med_prov_global
+
+        detectar_datos_sospechosos(a, med_ref_prov)
+
+    # (c) Mediana definitiva por estrato de ambientes excluyendo sospechosos
+    def_estratos: dict[int, list[float]] = {}
+    def_global: list[float] = []
+    for a in avisos:
+        if not a.get("datos_sospechosos") and a.get("costo_m2_ranking"):
+            c = a["costo_m2_ranking"]
+            def_global.append(c)
+            amb = _entero(a.get("ambientes"))
+            if amb and amb > 0:
+                def_estratos.setdefault(amb, []).append(c)
+
+    med_def_global = statistics.median(def_global) if def_global else None
+    med_def_estratos = {
+        amb: statistics.median(vals)
+        for amb, vals in def_estratos.items()
+        if len(vals) >= 5
+    }
+
+    for a in avisos:
+        amb = _entero(a.get("ambientes"))
+        if amb and amb in med_def_estratos:
+            a["mediana_usada"] = med_def_estratos[amb]
+            a["mediana_origen"] = f"{amb} amb"
+        else:
+            # OJO: este fallback tiene un sesgo conocido. La mediana global está
+            # dominada por los 2 ambientes, que son la mayor parte de la oferta,
+            # y el $/m² baja con el tamaño de la unidad: según ZPIndex (agosto
+            # 2026, CABA) un monoambiente vale 18.378 $/m² contra 16.886 de un
+            # 2 ambientes, casi 9% más caro POR SER CHICO, no por ser caro.
+            # Así que a un monoambiente que cae acá se lo compara contra una
+            # referencia que le queda baja y su 'valor' sale subestimado.
+            # El arreglo no es inventar un factor: es ajustar la mediana global
+            # por el gradiente real de mercado de ZPIndex para esa cantidad de
+            # ambientes. Queda pendiente para cuando exista zp/zpindex.py.
+            a["mediana_usada"] = med_def_global
+            a["mediana_origen"] = "global"
 
     for a in avisos:
         texto = " ".join(
@@ -1023,16 +1150,23 @@ def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float =
             a["es_dueno_directo"] = False
 
         # --- valor ---
-        costo_ref = a.get("costo_m2_ranking") or a.get("costo_m2")
-        if costo_ref and mediana:
-            rel = mediana / costo_ref
-            valor = max(0.0, min(1.0, (rel - 0.55) / 0.9))
-        else:
+        if a.get("datos_sospechosos"):
             valor = 0.35
+        else:
+            costo_ref = a.get("costo_m2_ranking") or a.get("costo_m2")
+            mediana = a.get("mediana_usada")
+            if costo_ref and mediana:
+                rel = mediana / costo_ref
+                valor = max(0.0, min(1.0, (rel - 0.55) / 0.9))
+            else:
+                valor = 0.35
         a["valor_vs_mercado"] = round(valor, 3)
 
         # --- calidad ---
         pts, pos, neg = señales(texto, a)
+
+        for m in a.get("datos_sospechosos", []):
+            neg.append(f"datos dudosos: {m}")
 
         if not a.get("m2_confiable"):
             pts -= 4
@@ -1146,5 +1280,9 @@ def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float =
     # 4) Detectar bajas de precio contra historial previo si existe
     detectar_bajas_precio(avisos, historial)
 
-    return sorted(avisos, key=lambda x: x["score"], reverse=True)
+    # Los descartados quedan SIEMPRE después de todos los vivos (False < True).
+    # Dentro de cada grupo, ordenados por score descendente (-score).
+    return sorted(avisos, key=lambda a: (bool(a.get("descartado")), -a["score"]))
+
+
 

@@ -331,10 +331,43 @@ def test_riesgo_humedad_sube_en_pb_y_edificio_viejo():
 
 
 def test_ranking_prefiere_lo_mas_barato_por_m2():
+    """El más barato por m² gana el componente 'valor'.
+
+    Antes este test pedía que saliera PRIMERO del ranking, y pasaba de casualidad:
+    valor es el 45% del score, no el 100%, así que el orden final depende también
+    de calidad y riesgo. Al estratificar la mediana por ambientes, 59855694 (muy
+    barato por m², pero planta baja con riesgo de humedad 5 y sin mascotas) quedó
+    detrás de 60010002 (monoambiente a estrenar, muy luminoso, al frente, riesgo 0).
+
+    Ese orden es el correcto y el test viejo lo tapaba. Lo que sí tiene que valer
+    siempre es la afirmación que le da nombre: el más barato por m² se lleva el
+    mejor 'valor'. Eso se asierta directo, sin pasar por los otros componentes.
+    """
     avisos = [a.dict() for a in parseo.parsear_listado(fx.html())]
     r = scoring.puntuar(avisos, presupuesto=900000, dolar=1450)
     vivos = [a for a in r if not a["descartado"]]
-    assert vivos[0]["id"] == "59855694"  # $620k sin expensas, 45 m²
+
+    mas_barato = min(vivos, key=lambda a: a["costo_m2_ranking"])
+    assert mas_barato["id"] == "59855694"
+    assert mas_barato["valor_vs_mercado"] == max(a["valor_vs_mercado"] for a in vivos)
+
+
+def test_a_igual_calidad_y_riesgo_gana_el_mas_barato_por_m2():
+    """La invariante de verdad: con el mismo texto, decide el precio por m².
+
+    El test de arriba mira avisos reales, donde calidad y riesgo difieren. Acá se
+    neutralizan esas dos variables para que quede sólo el precio.
+    """
+    texto = "Departamento luminoso al frente con balcón."
+    base = dict(moneda="ARS", ambientes=2, expensas=100000, expensas_informadas=True,
+                descripcion=texto)
+    caro = {**base, "id": "caro", "precio": 900000, "m2_total": 45}
+    barato = {**base, "id": "barato", "precio": 600000, "m2_total": 45}
+    contexto = [{**base, "id": f"c{i}", "precio": 750000, "m2_total": 45} for i in range(6)]
+
+    r = {a["id"]: a for a in scoring.puntuar([caro, barato] + contexto, dolar=1450)}
+    assert r["barato"]["valor_vs_mercado"] > r["caro"]["valor_vs_mercado"]
+    assert r["barato"]["score"] > r["caro"]["score"]
 
 
 # --------------------------------------------------------------------------- #
@@ -1021,4 +1054,193 @@ def test_rankear_con_dolar_automatico_e_historial(tmp_path, monkeypatch):
     # El historial guardado en disco ahora tiene 3 snapshots
     hist_disco = mod_historial.cargar(carpeta_run)
     assert len(hist_disco["201"]["snapshots"]) == 3
+
+
+# --------------------------------------------------------------------------- #
+# Detección forense de datos sospechosos y estratificación de medianas
+# --------------------------------------------------------------------------- #
+
+def test_aviso_con_metraje_disparatado_queda_sospechoso_no_descartado():
+    """Un 2 ambientes que declara 2769 m² queda sospechoso, no descartado, y con valor 0.35."""
+    aviso = {
+        "id": "gigante",
+        "precio": 800000,
+        "moneda": "ARS",
+        "expensas": 80000,
+        "expensas_informadas": True,
+        "m2_total": 2769,
+        "ambientes": 2,
+        "descripcion": "Departamento de 2 ambientes luminoso",
+    }
+    contexto = [
+        {
+            "id": f"norm_{i}",
+            "precio": 700000 + i * 20000,
+            "moneda": "ARS",
+            "expensas": 70000,
+            "expensas_informadas": True,
+            "m2_total": 45,
+            "ambientes": 2,
+            "descripcion": "Departamento normal",
+        }
+        for i in range(5)
+    ]
+    r = {a["id"]: a for a in scoring.puntuar([aviso] + contexto, dolar=1450)}
+    res = r["gigante"]
+
+    assert len(res["datos_sospechosos"]) > 0
+    assert any("2769" in m for m in res["datos_sospechosos"])
+    assert res["descartado"] is False
+    assert res["valor_vs_mercado"] == 0.35
+    assert any("datos dudosos" in m for m in res["motivos_en_contra"])
+
+
+def test_aviso_sospechoso_no_mueve_la_mediana():
+    """Un sospechoso con precio/m² extremo no altera la mediana de la búsqueda."""
+    normales = [
+        {
+            "id": f"n{i}",
+            "precio": 500000 + i * 20000,
+            "moneda": "ARS",
+            "expensas": 50000,
+            "expensas_informadas": True,
+            "m2_total": 50,
+            "ambientes": 2,
+            "descripcion": "Departamento estándar",
+        }
+        for i in range(5)
+    ]
+    # Caso sospechoso: 2 amb con 2769 m² (precio por m² absurdamente bajo)
+    sospechoso_extremo = {
+        "id": "sos_extremo",
+        "precio": 500000,
+        "moneda": "ARS",
+        "expensas": 50000,
+        "expensas_informadas": True,
+        "m2_total": 2769,
+        "ambientes": 2,
+        "descripcion": "Error de tipeo en superficie",
+    }
+
+    r_sin_sospechoso = {a["id"]: a for a in scoring.puntuar(normales, dolar=1450)}
+    mediana_sin = r_sin_sospechoso["n0"]["mediana_usada"]
+
+    r_con_sospechoso = {a["id"]: a for a in scoring.puntuar(normales + [sospechoso_extremo], dolar=1450)}
+    mediana_con = r_con_sospechoso["n0"]["mediana_usada"]
+
+    assert mediana_con == mediana_sin
+
+
+def test_estratificacion_por_ambientes_equilibra_valor():
+    """Con 5 o más avisos de 2 y 3 amb con precios/m² distintos, el aviso promedio saca valor ~0.5."""
+    avisos_2amb = [
+        {
+            "id": f"2amb_{i}",
+            "precio": 760000 + i * 20000,
+            "moneda": "ARS",
+            "expensas": 0,
+            "expensas_informadas": True,
+            "m2_total": 50,
+            "ambientes": 2,
+            "descripcion": "2 ambientes",
+        }
+        for i in range(5)
+    ]
+    avisos_3amb = [
+        {
+            "id": f"3amb_{i}",
+            "precio": 800000 + i * 20000,
+            "moneda": "ARS",
+            "expensas": 0,
+            "expensas_informadas": True,
+            "m2_total": 70,
+            "ambientes": 3,
+            "descripcion": "3 ambientes",
+        }
+        for i in range(5)
+    ]
+    r = {a["id"]: a for a in scoring.puntuar(avisos_2amb + avisos_3amb, dolar=1450)}
+
+    promedio_2amb = r["2amb_2"]
+    promedio_3amb = r["3amb_2"]
+
+    assert promedio_2amb["mediana_origen"] == "2 amb"
+    assert promedio_3amb["mediana_origen"] == "3 amb"
+    assert promedio_2amb["valor_vs_mercado"] == pytest.approx(0.5, abs=0.05)
+    assert promedio_3amb["valor_vs_mercado"] == pytest.approx(0.5, abs=0.05)
+    assert promedio_2amb["valor_vs_mercado"] == pytest.approx(promedio_3amb["valor_vs_mercado"], abs=0.02)
+
+
+def test_estrato_chico_usa_mediana_global():
+    """Con menos de 5 avisos en el estrato de ambientes, mediana_origen es 'global'."""
+    avisos_2amb = [
+        {
+            "id": f"2amb_{i}",
+            "precio": 700000 + i * 10000,
+            "moneda": "ARS",
+            "expensas": 0,
+            "expensas_informadas": True,
+            "m2_total": 45,
+            "ambientes": 2,
+            "descripcion": "2 ambientes",
+        }
+        for i in range(5)
+    ]
+    avisos_4amb = [
+        {
+            "id": f"4amb_{i}",
+            "precio": 1200000 + i * 10000,
+            "moneda": "ARS",
+            "expensas": 0,
+            "expensas_informadas": True,
+            "m2_total": 100,
+            "ambientes": 4,
+            "descripcion": "4 ambientes",
+        }
+        for i in range(3)  # < 5 avisos en este estrato
+    ]
+    r = {a["id"]: a for a in scoring.puntuar(avisos_2amb + avisos_4amb, dolar=1450)}
+
+    for i in range(3):
+        assert r[f"4amb_{i}"]["mediana_origen"] == "global"
+
+    for i in range(5):
+        assert r[f"2amb_{i}"]["mediana_origen"] == "2 amb"
+
+
+def test_descartado_con_score_alto_queda_despues_de_vivo_con_score_bajo():
+    """Un aviso descartado siempre queda ordenado después de todos los avisos vivos."""
+    # Descartado con score alto (supera presupuesto pero departamento premium a estrenar)
+    descartado_alto = {
+        "id": "desc_alto",
+        "precio": 500001,
+        "moneda": "ARS",
+        "expensas": 0,
+        "expensas_informadas": True,
+        "m2_total": 50,
+        "ambientes": 2,
+        "descripcion": "Muy luminoso al frente vista abierta a estrenar dueño directo con cochera",
+    }
+    # Vivo con score bajo (en presupuesto pero depto interno muy penalizado)
+    vivo_bajo = {
+        "id": "vivo_bajo",
+        "precio": 499000,
+        "moneda": "ARS",
+        "expensas": 0,
+        "expensas_informadas": True,
+        "m2_total": 25,
+        "ambientes": 2,
+        "antiguedad": "80",
+        "descripcion": "A refaccionar humedad subsuelo sin ascensor contrafrente interno planta baja",
+    }
+    r = scoring.puntuar([descartado_alto, vivo_bajo], presupuesto=500000, dolar=1450)
+
+    r_dict = {a["id"]: a for a in r}
+    assert r_dict["vivo_bajo"]["descartado"] is False
+    assert r_dict["desc_alto"]["descartado"] is True
+    assert r_dict["desc_alto"]["score"] > r_dict["vivo_bajo"]["score"]
+
+    ids_ordenados = [a["id"] for a in r]
+    assert ids_ordenados.index("vivo_bajo") < ids_ordenados.index("desc_alto")
+
 
