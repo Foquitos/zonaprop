@@ -52,7 +52,7 @@ CAMPOS_CSV = [
     "latitude", "longitude", "entorno_tipo", "avenidas_cercanas", "estaciones_cercanas",
     "garantias_aceptadas", "politica_mascotas", "ajuste_frecuencia", "ajuste_indice", "deposito_monto", "plazo_contrato", "costos_adicionales",
     "es_dueno_directo", "caja_inicial_total", "caja_inicial_resumen", "proyeccion_resumen",
-    "baja_precio", "descuento_porcentaje", "alerta_gran_angular",
+    "baja_precio", "descuento_porcentaje", "nota_historial", "alerta_gran_angular",
     "publicador", "dias_publicado", "es_duplicado", "disparidad_precio", "nota_negociacion",
     "riesgo_humedad", "motivos_riesgo", "fotos_totales", "descartado", "url",
 ]
@@ -157,7 +157,27 @@ def cmd_rankear(args):
         except Exception as e:
             print(f"  ! Error al cargar datos de detalle previos ({type(e).__name__}: {e}). Se re-rankeará SIN los datos de detalle previos.")
 
-    ordenados = scoring.puntuar(datos, presupuesto=args.presupuesto, dolar=args.dolar)
+    dolar = args.dolar
+    if dolar is None:
+        from zp.cotizacion import obtener_dolar
+        dolar, origen = obtener_dolar()
+        print(f"Dólar: {_plata(dolar)} ({origen})\n")
+
+    from zp import historial as mod_historial
+
+    hist = mod_historial.cargar(carpeta)
+    ordenados = scoring.puntuar(
+        datos,
+        presupuesto=args.presupuesto,
+        dolar=dolar,
+        historial=mod_historial.ultimo_precio(hist),
+    )
+    mod_historial.registrar(carpeta, ordenados)
+    hist_actualizado = mod_historial.cargar(carpeta)
+    for a in ordenados:
+        nota = mod_historial.resumen_bajas(hist_actualizado, str(a.get("id")))
+        if nota:
+            a["nota_historial"] = nota
 
     # Geocodificar avisos vivos (no descartados) que aún no tengan coordenadas
     vivos_sin_coords = [
@@ -261,7 +281,13 @@ def cmd_fotos(args):
             ses.esperar()
 
     # Volvemos a puntuar: ahora tenemos antigüedad y orientación reales.
-    ordenados = scoring.puntuar(ordenados, presupuesto=args.presupuesto, dolar=args.dolar)
+    dolar = args.dolar
+    if dolar is None:
+        from zp.cotizacion import obtener_dolar
+        dolar, origen = obtener_dolar()
+        print(f"Dólar: {_plata(dolar)} ({origen})\n")
+
+    ordenados = scoring.puntuar(ordenados, presupuesto=args.presupuesto, dolar=dolar)
     (carpeta / "ranking.json").write_text(
         json.dumps(ordenados, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -606,7 +632,7 @@ def main():
     r = sub.add_parser("rankear", help="puntúa lo scrapeado")
     r.add_argument("--run", required=True)
     r.add_argument("--presupuesto", type=float, default=None, help="tope de alquiler + expensas")
-    r.add_argument("--dolar", type=float, default=1450.0, help="cotización para pasar USD a ARS")
+    r.add_argument("--dolar", type=float, default=None, help="cotización para pasar USD a ARS (default: consulta con caché)")
     r.add_argument("--top", type=int, default=20)
     r.set_defaults(func=cmd_rankear)
 
@@ -615,7 +641,7 @@ def main():
     f.add_argument("--top", type=int, default=20)
     f.add_argument("--max-fotos", type=int, default=16)
     f.add_argument("--presupuesto", type=float, default=None)
-    f.add_argument("--dolar", type=float, default=1450.0)
+    f.add_argument("--dolar", type=float, default=None, help="cotización para pasar USD a ARS (default: consulta con caché)")
     comunes(f)
     f.set_defaults(func=cmd_fotos)
 

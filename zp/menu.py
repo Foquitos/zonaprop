@@ -18,7 +18,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from zp import urls, zonas
+from zp import cotizacion, urls, zonas
 
 RAIZ = Path(__file__).resolve().parents[1]
 SALIDA = RAIZ / "salida"
@@ -265,10 +265,20 @@ class Menu(ttk.Frame):
         fila += 1
 
         # Campos numéricos
+        try:
+            # solo_cache: el menú se dibuja al arrancar y no puede quedarse
+            # esperando la red. Si hoy todavía no se consultó, muestra el
+            # fallback y el valor real se resuelve al correr `rankear`.
+            val_dolar, _ = cotizacion.obtener_dolar(solo_cache=True)
+            dolar_defecto = str(int(val_dolar))
+        except Exception as e:
+            print(f"  [menu] Error al obtener cotización del dólar ({e}); usando fallback.")
+            dolar_defecto = str(int(cotizacion.DOLAR_FALLBACK))
+
         self.campos = {}
         for etiqueta, clave, valor, ayuda in (
             ("Presupuesto máx", "presupuesto", "1100000", "alquiler + expensas en ARS"),
-            ("Cotización Dólar", "dolar", "1450", "conversión para avisos en USD"),
+            ("Cotización Dólar", "dolar", dolar_defecto, "conversión para avisos en USD"),
             ("Páginas a scrapear", "paginas", "5", "30 propiedades por página"),
             ("Top para Fotos", "top", "20", "candidatos para análisis visual"),
             ("Fotos por aviso", "max_fotos", "16", "preserva fotos de plano y fachada"),

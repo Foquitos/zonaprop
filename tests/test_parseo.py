@@ -739,3 +739,286 @@ def test_rankear_geocodifica_avisos_vivos(tmp_path, monkeypatch):
     assert len(ranking) == 1
     assert ranking[0]["latitude"] == -34.5800
     assert ranking[0]["longitude"] == -58.4200
+
+
+# --------------------------------------------------------------------------- #
+# Cotización del dólar (zp/cotizacion.py)
+# --------------------------------------------------------------------------- #
+
+def test_cotizacion_cache_de_hoy_sin_red(tmp_path, monkeypatch):
+    """Si existe caché con fecha de hoy, se utiliza de inmediato sin consultar la red."""
+    import json
+    from unittest.mock import MagicMock
+    from zp import cotizacion
+
+    hoy = datetime.date.today().isoformat()
+    cache_file = tmp_path / ".cotizacion.json"
+    cache_file.write_text(
+        json.dumps({"fecha": hoy, "valor": 1520.0}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cotizacion, "CACHE_FILE", cache_file)
+
+    mock_urlopen = MagicMock(side_effect=AssertionError("No debería conectar a la red si hay caché de hoy"))
+    monkeypatch.setattr(cotizacion.urllib.request, "urlopen", mock_urlopen)
+
+    valor, origen = cotizacion.obtener_dolar()
+    assert valor == 1520.0
+    assert origen == "caché de hoy"
+    mock_urlopen.assert_not_called()
+
+
+def test_cotizacion_fallback_cuando_red_falla(tmp_path, monkeypatch):
+    """Si la red falla y no hay caché de hoy, devuelve silenciosamente DOLAR_FALLBACK."""
+    from unittest.mock import MagicMock
+    from zp import cotizacion
+
+    cache_file = tmp_path / ".cotizacion.json"
+    monkeypatch.setattr(cotizacion, "CACHE_FILE", cache_file)
+
+    mock_urlopen = MagicMock(side_effect=cotizacion.urllib.error.URLError("Sin conexión"))
+    monkeypatch.setattr(cotizacion.urllib.request, "urlopen", mock_urlopen)
+
+    valor, origen = cotizacion.obtener_dolar()
+    assert valor == cotizacion.DOLAR_FALLBACK
+    assert origen == "fallback"
+
+
+def test_cotizacion_valor_implausible_cae_a_fallback(tmp_path, monkeypatch):
+    """Si la API devuelve un valor absurdo o datos basura, se descarta y cae al fallback."""
+    from unittest.mock import MagicMock
+    from zp import cotizacion
+
+    cache_file = tmp_path / ".cotizacion.json"
+    monkeypatch.setattr(cotizacion, "CACHE_FILE", cache_file)
+
+    def _mock_respuesta(cuerpo: bytes):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = cuerpo
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.__exit__.return_value = False
+        return mock_resp
+
+    # Caso 1: valor excesivamente alto (> 100000)
+    monkeypatch.setattr(
+        cotizacion.urllib.request, "urlopen",
+        MagicMock(return_value=_mock_respuesta(b'{"venta": 999999999}'))
+    )
+    v1, o1 = cotizacion.obtener_dolar()
+    assert v1 == cotizacion.DOLAR_FALLBACK
+    assert o1 == "fallback"
+
+    # Caso 2: valor por debajo del límite plausible (< 100)
+    monkeypatch.setattr(
+        cotizacion.urllib.request, "urlopen",
+        MagicMock(return_value=_mock_respuesta(b'{"venta": 50}'))
+    )
+    v2, o2 = cotizacion.obtener_dolar()
+    assert v2 == cotizacion.DOLAR_FALLBACK
+    assert o2 == "fallback"
+
+    # Caso 3: respuesta sin campo 'venta' o con basura
+    monkeypatch.setattr(
+        cotizacion.urllib.request, "urlopen",
+        MagicMock(return_value=_mock_respuesta(b'{"moneda": "USD", "casa": "blue"}'))
+    )
+    v3, o3 = cotizacion.obtener_dolar()
+    assert v3 == cotizacion.DOLAR_FALLBACK
+    assert o3 == "fallback"
+
+
+def test_cotizacion_api_exitosa_guarda_cache(tmp_path, monkeypatch):
+    """Si la API responde correctamente con un valor plausible, se persiste en caché de hoy."""
+    import json
+    from unittest.mock import MagicMock
+    from zp import cotizacion
+
+    cache_file = tmp_path / ".cotizacion.json"
+    monkeypatch.setattr(cotizacion, "CACHE_FILE", cache_file)
+
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = b'{"venta": 1490.0}'
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.__exit__.return_value = False
+
+    monkeypatch.setattr(
+        cotizacion.urllib.request, "urlopen",
+        MagicMock(return_value=mock_resp)
+    )
+
+    valor, origen = cotizacion.obtener_dolar()
+    assert valor == 1490.0
+    assert origen == "api"
+    assert cache_file.exists()
+
+    guardado = json.loads(cache_file.read_text(encoding="utf-8"))
+    assert guardado["valor"] == 1490.0
+    assert guardado["fecha"] == datetime.date.today().isoformat()
+
+
+# --------------------------------------------------------------------------- #
+# Historial de precios (zp/historial.py)
+# --------------------------------------------------------------------------- #
+
+def test_historial_detecta_baja_precio_entre_snapshots(tmp_path):
+    """Una baja entre dos corridas se detecta vía detectar_bajas_precio.
+
+    Respeta el orden real de cmd_rankear: cargar -> puntuar -> registrar. O sea
+    que al puntuar, el historial TODAVÍA NO tiene el precio de hoy.
+    """
+    from zp import historial as mod_historial
+
+    # Corrida 1: el aviso se publica a $900.000 y se registra.
+    mod_historial.registrar(tmp_path, [{"id": "av1", "precio": 900000, "expensas": 70000}])
+
+    # Corrida 2: hoy sale $800.000. Se carga el historial ANTES de registrar.
+    h = mod_historial.cargar(tmp_path)
+    ult = mod_historial.ultimo_precio(h)
+    assert ult["av1"]["precio"] == 900000
+
+    aviso_actual = [{"id": "av1", "precio": 800000, "moneda": "ARS"}]
+    scoring.detectar_bajas_precio(aviso_actual, ult)
+
+    assert aviso_actual[0].get("baja_precio") is True
+    assert aviso_actual[0]["descuento_porcentaje"] == 11
+    assert aviso_actual[0]["precio_anterior"] == 900000
+    assert "Bajó un 11%" in aviso_actual[0]["nota_baja_precio"]
+
+    # Y recién ahora se registra la corrida de hoy.
+    mod_historial.registrar(tmp_path, aviso_actual)
+    assert len(mod_historial.cargar(tmp_path)["av1"]["snapshots"]) == 2
+
+
+def test_historial_compara_contra_la_corrida_anterior_no_contra_la_primera(tmp_path):
+    """Con tres corridas, la referencia es la ÚLTIMA conocida, no la penúltima.
+
+    Regresión: tomar snapshots[-2] compara contra dos corridas atrás e infla el
+    descuento. Con 1000 -> 900 -> hoy 800, la baja reportable es del 11% contra
+    los 900 de la corrida pasada, no del 20% contra los 1000 del principio.
+    """
+    from zp import historial as mod_historial
+
+    mod_historial.registrar(tmp_path, [{"id": "av1", "precio": 1000000}])   # corrida 1
+    mod_historial.registrar(tmp_path, [{"id": "av1", "precio": 900000}])    # corrida 2
+
+    ult = mod_historial.ultimo_precio(mod_historial.cargar(tmp_path))
+    assert ult["av1"]["precio"] == 900000, "debe comparar contra la corrida anterior"
+
+    actual = [{"id": "av1", "precio": 800000, "moneda": "ARS"}]
+    scoring.detectar_bajas_precio(actual, ult)
+    assert actual[0]["descuento_porcentaje"] == 11
+
+
+def test_historial_no_duplica_snapshots_mismo_precio(tmp_path):
+    """Verifica que registrar dos veces el mismo precio no duplica snapshots."""
+    from zp import historial as mod_historial
+
+    aviso = [{"id": "av1", "precio": 800000, "expensas": 50000}]
+    mod_historial.registrar(tmp_path, aviso)
+    mod_historial.registrar(tmp_path, aviso)
+    mod_historial.registrar(tmp_path, aviso)
+
+    h = mod_historial.cargar(tmp_path)
+    assert len(h["av1"]["snapshots"]) == 1
+
+
+def test_historial_resumen_bajas():
+    """resumen_bajas devuelve el texto de bajas sucesivas solo si hubo más de una baja; si no, None."""
+    from zp import historial as mod_historial
+
+    # Caso 1: solo 1 baja registrada en el tiempo -> None
+    h_una_baja = {
+        "av1": {
+            "snapshots": [
+                {"fecha": "2026-08-01", "precio": 900000},
+                {"fecha": "2026-08-20", "precio": 800000},
+            ]
+        }
+    }
+    assert mod_historial.resumen_bajas(h_una_baja, "av1") is None
+
+    # Caso 2: 2 bajas sucesivas en 40 días -> formato descriptivo para negociación
+    h_dos_bajas = {
+        "av1": {
+            "snapshots": [
+                {"fecha": "2026-08-01", "precio": 850000},
+                {"fecha": "2026-08-20", "precio": 800000},
+                {"fecha": "2026-09-10", "precio": 700000},
+            ]
+        }
+    }
+    res = mod_historial.resumen_bajas(h_dos_bajas, "av1")
+    assert res is not None
+    assert res == "bajó 2 veces en 40 días: $850.000 -> $700.000 (-18%)"
+
+
+def test_rankear_con_dolar_automatico_e_historial(tmp_path, monkeypatch):
+    """Verifica que cmd_rankear sin --dolar consulte la cotización, registre historial y agregue nota_historial."""
+    import json
+    from unittest.mock import MagicMock
+    from zp import cotizacion, historial as mod_historial
+
+    monkeypatch.setattr(cli, "SALIDA", tmp_path)
+    monkeypatch.setattr(
+        "zp.geocodificador.geocodificar_direccion",
+        lambda direccion, barrio="": (-34.5800, -58.4200)
+    )
+
+    # Mock de cotización automática
+    monkeypatch.setattr(
+        "zp.cotizacion.obtener_dolar",
+        lambda forzar=False: (1500.0, "api")
+    )
+
+    carpeta_run = tmp_path / "run-historial"
+    carpeta_run.mkdir(parents=True, exist_ok=True)
+
+    # Pre-cargamos un historial previo donde el aviso bajó dos veces
+    historial_previo = {
+        "201": {
+            "snapshots": [
+                {"fecha": "2026-08-01", "precio": 1000000, "expensas": 50000},
+                {"fecha": "2026-08-20", "precio": 900000, "expensas": 50000},
+            ]
+        }
+    }
+    (carpeta_run / "historial.json").write_text(
+        json.dumps(historial_previo, ensure_ascii=False), encoding="utf-8"
+    )
+
+    # Aviso actual a $800.000 (3ra baja)
+    aviso = {
+        "id": "201",
+        "direccion": "Av. Santa Fe 3000",
+        "barrio": "Palermo",
+        "precio": 800000,
+        "moneda": "ARS",
+        "expensas": 50000,
+        "expensas_informadas": True,
+        "m2_total": 50,
+        "ambientes": 2,
+    }
+    (carpeta_run / "listado.json").write_text(json.dumps([aviso]), encoding="utf-8")
+
+    class Args:
+        run = "run-historial"
+        presupuesto = 1200000
+        dolar = None
+        top = 10
+
+    ret = cli.cmd_rankear(Args)
+    assert ret == 0
+
+    ranking = json.loads((carpeta_run / "ranking.json").read_text(encoding="utf-8"))
+    assert len(ranking) == 1
+    a = ranking[0]
+    # Se detectó baja respecto al precio anterior
+    assert a.get("baja_precio") is True
+    # Contiene la nota_historial calculada con resumen_bajas
+    assert "nota_historial" in a
+    assert "bajó 2 veces" in a["nota_historial"]
+
+    # El historial guardado en disco ahora tiene 3 snapshots
+    hist_disco = mod_historial.cargar(carpeta_run)
+    assert len(hist_disco["201"]["snapshots"]) == 3
+
