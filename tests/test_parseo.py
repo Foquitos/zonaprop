@@ -510,11 +510,12 @@ def test_parsear_contrato_requisitos():
     assert any("ABL" in cost for cost in c["costos_adicionales"])
 
 
-def test_calcular_dias_mercado():
-    """Calcula los días en mercado desde fecha ISO."""
-    ayer = (datetime.date.today() - datetime.timedelta(days=10)).isoformat()
-    dias = scoring.calcular_dias_mercado(ayer)
-    assert dias == 10
+# test_calcular_dias_mercado se eliminó junto con la función que probaba.
+# Zonaprop no publica una fecha ISO en ningún lado: el dato existe sólo como
+# texto relativo ("Publicado hace 19 días") en la ficha de detalle, así que
+# ahora `parsear_detalle` devuelve los días ya contados y no hay nada que
+# convertir. La cobertura del parseo de ese texto, con todas sus variantes,
+# está en tests/test_captura_real.py, contra HTML real del sitio.
 
 
 def test_analizar_entorno_y_conectividad():
@@ -695,12 +696,16 @@ def test_fallo_de_red_no_envenena_la_cache(monkeypatch):
         geocodificador._CAMBIOS_PENDIENTES = 0
 
 
-def test_parsear_detalle_coordenadas_invertidas():
-    """Verifica que si el JSON trae longitude antes de latitude, no queden invertidas."""
-    html_inv = '<html><script>{"longitude": -58.456789, "latitude": -34.567890}</script></html>'
-    d = parseo.parsear_detalle(html_inv)
-    assert d.get("latitude") == -34.567890
-    assert d.get("longitude") == -58.456789
+# test_parsear_detalle_coordenadas_invertidas se eliminó junto con las cuatro
+# regex de coordenadas que probaba. Verificado sobre 657 KB de HTML real: la
+# ficha de detalle de Zonaprop no trae latitude, longitude, lat, lng,
+# coordinates ni LatLng en ninguna forma, así que esas regex nunca matchearon
+# nada. El test las hacía parecer vivas porque las alimentaba con un HTML
+# inventado que cumplía justo el formato que ellas esperaban.
+# Lo reemplaza test_captura_real_no_trae_coordenadas, que asierta lo contrario
+# contra la captura real: si algún día Zonaprop publica coordenadas, ese test
+# falla y avisa que hay una fuente nueva. Las coordenadas salen hoy de
+# zp/geocodificador.py, geocodificando la dirección contra Nominatim.
 
 
 def test_exportar_geojson_con_geocodificacion_fallback(tmp_path, monkeypatch):

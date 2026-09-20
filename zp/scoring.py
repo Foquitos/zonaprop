@@ -688,22 +688,6 @@ def parsear_contrato(texto: str) -> dict:
     }
 
 
-def calcular_dias_mercado(fecha_str: str) -> int | None:
-    """Calcula cuántos días lleva publicado el aviso a partir de fecha_publicacion."""
-    if not fecha_str:
-        return None
-    try:
-        limpio = fecha_str.split("T")[0].split(" ")[0].strip()
-        partes = [int(p) for p in limpio.split("-")]
-        if len(partes) == 3:
-            dt = datetime.date(partes[0], partes[1], partes[2])
-            hoy = datetime.date.today()
-            dias = (hoy - dt).days
-            return max(0, dias)
-    except Exception:
-        pass
-    return None
-
 
 def analizar_entorno(aviso: dict, texto: str) -> dict:
     """Analiza la micro-ubicación, avenidas principales y conectividad."""
@@ -1201,13 +1185,18 @@ def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float =
         a["costos_adicionales"] = contrato["costos_adicionales"]
 
         # --- días en mercado ---
-        dias = calcular_dias_mercado(a.get("fecha_publicacion") or "")
+        dias = a.get("dias_publicado")
         a["dias_publicado"] = dias
         if dias is not None:
             if dias <= 7:
-                pos.append("oportunidad reciente (< 7 días en mercado)")
-            elif dias >= 45:
-                pos.append(f"en mercado hace {dias} días (margen para negociar valor)")
+                pts += 1
+                pos.append("recien publicado")
+            elif 30 <= dias <= 59:
+                pts += 2
+                pos.append("un mes largo en el mercado (margen para negociar)")
+            elif dias >= 60:
+                pts += 3
+                pos.append(f"{dias} dias publicado: hay margen para negociar, pero preguntá por que no se alquilo")
 
         # --- micro-entorno ---
         entorno = analizar_entorno(a, texto)

@@ -245,7 +245,6 @@ _RE_FOTOS = re.compile(r'"resizeUrl1200x1200":"([^"]+)"')
 _RE_FEATURE = re.compile(
     r'"label":"([^"]{1,40})","measure":(?:"[^"]*"|null),"value":"([^"]{0,60})"'
 )
-_RE_FECHA = re.compile(r'"publishedDate":"([^"]+)"')
 
 # Cómo se llama cada label en el JSON -> campo del Aviso.
 _MAPA_FEATURES = {
@@ -257,22 +256,49 @@ _MAPA_FEATURES = {
 }
 
 
-_RE_LAT_LNG = re.compile(
-    r'"latitude"\s*:\s*(-?\d+\.\d+)\s*,\s*"longitude"\s*:\s*(-?\d+\.\d+)'
-)
-_RE_LOCATION = re.compile(
-    r'"location"\s*:\s*\{\s*"latitude"\s*:\s*(-?\d+\.\d+)\s*,\s*"longitude"\s*:\s*(-?\d+\.\d+)'
-)
-_RE_LAT_LNG_INV = re.compile(
-    r'"longitude"\s*:\s*(-?\d+\.\d+)\s*,\s*"latitude"\s*:\s*(-?\d+\.\d+)'
-)
-_RE_LAT_LNG_SHORT = re.compile(
-    r'"lat"\s*:\s*(-?\d+\.\d+)\s*,\s*"lng"\s*:\s*(-?\d+\.\d+)'
-)
+def parsear_dias_publicado(texto: str | None) -> int | None:
+    """Parsea expresiones relativas de antigüedad de publicación a días como entero.
+
+    Variantes soportadas:
+      - 'hoy' / 'publicado hoy' -> 0
+      - 'ayer' / 'publicado ayer' -> 1
+      - 'hace 1 dia' / 'hace 1 día' / 'hace un dia' -> 1
+      - 'hace N dias' / 'hace N días' -> N
+      - 'hace mas de un anio' / 'hace más de un año' / 'mas de 1 anio' -> 365
+    Tolerante a mayúsculas y tildes presentes o ausentes.
+    Si no parsea devuelve None (nunca 0, que representaría 'hoy').
+    """
+    if not texto:
+        return None
+    t = texto.strip().lower()
+
+    # Más de un año / años (con o sin tilde, anio o año)
+    if re.search(r"m[aá]s\s+de\s+(?:un|1)\s+a(?:[nñ]|ni)os?", t):
+        return 365
+    m_anios = re.search(r"m[aá]s\s+de\s+(\d+)\s+a(?:[nñ]|ni)os?", t)
+    if m_anios:
+        return int(m_anios.group(1)) * 365
+
+    # Hoy / ayer (palabra completa)
+    if re.search(r"\bhoy\b", t):
+        return 0
+    if re.search(r"\bayer\b", t):
+        return 1
+
+    # Hace N días / hace N dias / N días / N dias
+    m_dias = re.search(r"(?:hace\s+)?(\d+)\s+d[ií]as?", t)
+    if m_dias:
+        return int(m_dias.group(1))
+
+    # Hace un día / hace un dia
+    if re.search(r"hace\s+un\s+d[ií]a", t):
+        return 1
+
+    return None
 
 
 def parsear_detalle(html: str) -> dict:
-    """Extrae del detalle: galería completa, features, descripción larga y coordenadas."""
+    """Extrae del detalle: galería completa, features, descripción larga y días de publicación."""
     fotos = []
     vistas = set()
     for u in _RE_FOTOS.findall(html):
@@ -289,35 +315,29 @@ def parsear_detalle(html: str) -> dict:
         if campo:
             datos[campo] = valor.strip()
 
-    m = _RE_FECHA.search(html)
-    if m:
-        datos["fecha_publicacion"] = m.group(1)
-
-    m_geo = _RE_LAT_LNG.search(html) or _RE_LOCATION.search(html) or _RE_LAT_LNG_SHORT.search(html)
-    if m_geo:
-        try:
-            f_lat = float(m_geo.group(1))
-            f_lng = float(m_geo.group(2))
-            if abs(f_lat) > 0 and abs(f_lng) > 0:
-                datos["latitude"] = f_lat
-                datos["longitude"] = f_lng
-        except (ValueError, TypeError):
-            pass
-    else:
-        m_inv = _RE_LAT_LNG_INV.search(html)
-        if m_inv:
-            try:
-                # _RE_LAT_LNG_INV captura longitude primero (grupo 1) y latitude segundo (grupo 2).
-                # Se invierten explícitamente para no guardar coordenadas dadas vuelta.
-                f_lng = float(m_inv.group(1))
-                f_lat = float(m_inv.group(2))
-                if abs(f_lat) > 0 and abs(f_lng) > 0:
-                    datos["latitude"] = f_lat
-                    datos["longitude"] = f_lng
-            except (ValueError, TypeError):
-                pass
+    # Zonaprop NO publica coordenadas en el HTML del detalle (verificado en
+    # septiembre de 2026 contra tests/capturas/detalle-51264287-2026-09.html.gz);
+    # por eso las coordenadas salen de zp/geocodificador.py via Nominatim sobre la
+    # direccion; si alguien ve un campo de coordenadas, confirmarlo contra una
+    # captura antes de reactivar nada.
 
     doc = HTMLParser(html)
+
+    # Días desde la publicación:
+    # 1) Vía selector CSS buscando el prefijo de clase userViews-module__post-antiquity-views
+    # 2) Fallback por regex sobre el texto plano del HTML buscando 'Publicado...'
+    dias_pub = None
+    el_antiguedad = doc.css_first('[class*="userViews-module__post-antiquity-views"]')
+    if el_antiguedad:
+        dias_pub = parsear_dias_publicado(el_antiguedad.text(strip=True))
+
+    if dias_pub is None:
+        m_txt = re.search(r"publicad[oa]\s+([^\n<]{1,60})", html, re.IGNORECASE)
+        if m_txt:
+            dias_pub = parsear_dias_publicado(m_txt.group(0))
+
+    datos["dias_publicado"] = dias_pub
+
     desc = doc.css_first("#longDescription") or doc.css_first('[class*="description"]')
     if desc:
         datos["descripcion_completa"] = desc.text(separator="\n", strip=True)

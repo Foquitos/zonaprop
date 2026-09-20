@@ -1,8 +1,9 @@
 """Genera HTML con la misma estructura que devuelve Zonaprop hoy.
 
-Los atributos y el formato de los textos están copiados de una captura real de
-/departamentos-ph-alquiler-vicente-lopez-2-ambientes.html (agosto 2026).
-Sirve para probar el parser sin pegarle al sitio.
+La estructura de las tarjetas (atributos data-qa, layout, clases) refleja fielmente
+el HTML real de Zonaprop, pero los datos de los avisos y detalles son sintéticos
+diseñados para cubrir casos de borde del scoring y el parser.
+Para capturas HTML completas y reales del sitio, remitirse a tests/capturas/.
 """
 
 CARD = """
@@ -190,6 +191,7 @@ DESAFIO_DATADOME = """<!doctype html><html><head><title>zonaprop.com.ar</title><
 
 
 DETALLE = """<!doctype html><html><body>
+<div class="userViews-module__section-container___2M_OV"><p class="userViews-module__post-antiquity-views___8Zfch">Publicado hace 19 dias</p></div>
 <div id="longDescription">Departamento tipo casa de 2 ambientes ubicado dentro de complejo
 con expensas mínimas. Living comedor espacioso y muy luminoso.</div>
 <script>
@@ -197,12 +199,10 @@ con expensas mínimas. Living comedor espacioso y muy luminoso.</div>
     'pictures': [{"multimediaTypeId":2,"order":0,"resizeUrl1200x1200":"https://imgar.zonapropcdn.com/avisos/resize/1/00/59/55/35/28/1200x1200/2064026704.jpg?isFirstImage=true"},
                  {"order":1,"resizeUrl1200x1200":"https://imgar.zonapropcdn.com/avisos/resize/1/00/59/55/35/28/1200x1200/2064026735.jpg"},
                  {"order":2,"resizeUrl1200x1200":"https://imgar.zonapropcdn.com/avisos/resize/1/00/59/55/35/28/1200x1200/2064026745.jpg"}],
-    'mainFeatures': {"100000
-1":{"featureId":"1000015","label":"tot.","measure":"m²","value":"40"},
+    'mainFeatures': {"1000001":{"featureId":"1000015","label":"tot.","measure":"m²","value":"40"},
       "1000016":{"featureId":"1000016","label":"antigüedad","measure":null,"value":"20"},
       "1000019":{"featureId":"1000019","label":"Disposición","measure":null,"value":"Frente"},
       "1000029":{"featureId":"1000029","label":"Orientación","measure":null,"value":"N"},
-      "1000030":{"featureId":"1000030","label":"Luminosidad","measure":null,"value":"Muy luminoso"}},
-    "publishedDate":"2026-08-05"
+      "1000030":{"featureId":"1000030","label":"Luminosidad","measure":null,"value":"Muy luminoso"}}
   };
 </script></body></html>"""
