@@ -20,6 +20,7 @@ import re
 import statistics
 import unicodedata
 
+from zp import zpindex
 from zp.comun import _plata
 
 PESOS = {
@@ -419,8 +420,31 @@ def analizar_superficies(aviso: dict, texto: str) -> dict:
 
     if m2_declarado and m2_cub > 0:
         discrepancia = (m2_declarado - m2_cub) / m2_declarado
-        if discrepancia > 0.30:
+        # Que la suma de las medidas del texto quede MUY por debajo de lo
+        # declarado admite dos explicaciones, y la más común por lejos es la
+        # aburrida: el aviso enumeró dos ambientes y se olvidó del resto.
+        # La otra —que los m² declarados incluyan una terraza enorme— es la que
+        # nos interesa, pero sólo se puede afirmar cuando hay EVIDENCIA POSITIVA:
+        # que el texto nombre superficie descubierta y que esa superficie
+        # explique buena parte del hueco.
+        #
+        # Sin esa evidencia esto marcaba unidades enteras como no confiables a
+        # partir de una sola medida suelta. Un aviso que sólo decía "baño 1x2"
+        # terminaba con m2_cubierto_estimado = 2.0 para un 2 ambientes de 45 m²,
+        # y ese 2.0 se usaba después como divisor del $/m².
+        hueco = m2_declarado - m2_cub
+        evidencia_exterior = m2_desc > 0 and hueco > 0 and m2_desc >= hueco * 0.5
+
+        # Piso de plausibilidad, el mismo criterio que usa el gate de datos
+        # sospechosos: menos de 12 m² por ambiente no es un departamento.
+        amb = aviso.get("ambientes")
+        plausible = (not amb) or (m2_cub / amb >= 12)
+
+        if discrepancia > 0.30 and evidencia_exterior and plausible:
             m2_confiable = False
+        elif discrepancia > 0.30:
+            # El texto no alcanza para concluir nada: se respeta lo declarado.
+            m2_cubierto_estimado = aviso.get("m2_cubierto")
     elif aviso.get("m2_total") and aviso.get("m2_cubierto"):
         if (aviso["m2_total"] - aviso["m2_cubierto"]) / aviso["m2_total"] > 0.30:
             m2_confiable = False
@@ -982,9 +1006,50 @@ def detectar_datos_sospechosos(aviso: dict, mediana: float | None = None) -> lis
     return motivos
 
 
+def _detectar_region(aviso: dict, region_defecto: str | None = None) -> str | None:
+    """Identifica si el aviso pertenece a 'caba' o 'gba_norte'."""
+    if aviso.get("region"):
+        r = zpindex.region_de_zona(str(aviso["region"]))
+        if r:
+            return r
+    if aviso.get("zona"):
+        r = zpindex.region_de_zona(str(aviso["zona"]))
+        if r:
+            return r
+    if aviso.get("barrio"):
+        r = zpindex.region_de_zona(str(aviso["barrio"]))
+        if r:
+            return r
+    if aviso.get("url"):
+        r = zpindex.region_de_zona(str(aviso["url"]))
+        if r:
+            return r
+    if aviso.get("direccion"):
+        r = zpindex.region_de_zona(str(aviso["direccion"]))
+        if r:
+            return r
+    if region_defecto:
+        r = zpindex.region_de_zona(str(region_defecto))
+        if r:
+            return r
+    return None
+
+
 def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float = 1450.0,
-            historial: dict | None = None) -> list[dict]:
+            historial: dict | None = None, region: str | None = None) -> list[dict]:
     """Agrega score y columnas explicativas a cada aviso. Devuelve la lista ordenada."""
+    if not region:
+        regiones_detectadas = [
+            _detectar_region(a) for a in avisos if _detectar_region(a)
+        ]
+        if regiones_detectadas:
+            conteo_caba = regiones_detectadas.count("caba")
+            conteo_gba = regiones_detectadas.count("gba_norte")
+            if conteo_caba > conteo_gba:
+                region = "caba"
+            elif conteo_gba > conteo_caba:
+                region = "gba_norte"
+
     # Asegurar detección de tipo y re-evaluar 'sin expensas' sobre descripciones completas
     for a in avisos:
         if not a.get("tipo"):
@@ -1107,18 +1172,20 @@ def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float =
             a["mediana_usada"] = med_def_estratos[amb]
             a["mediana_origen"] = f"{amb} amb"
         else:
-            # OJO: este fallback tiene un sesgo conocido. La mediana global está
-            # dominada por los 2 ambientes, que son la mayor parte de la oferta,
-            # y el $/m² baja con el tamaño de la unidad: según ZPIndex (agosto
-            # 2026, CABA) un monoambiente vale 18.378 $/m² contra 16.886 de un
-            # 2 ambientes, casi 9% más caro POR SER CHICO, no por ser caro.
-            # Así que a un monoambiente que cae acá se lo compara contra una
-            # referencia que le queda baja y su 'valor' sale subestimado.
-            # El arreglo no es inventar un factor: es ajustar la mediana global
-            # por el gradiente real de mercado de ZPIndex para esa cantidad de
-            # ambientes. Queda pendiente para cuando exista zp/zpindex.py.
-            a["mediana_usada"] = med_def_global
-            a["mediana_origen"] = "global"
+            # Fallback a mediana global cuando el estrato tiene menos de 5 avisos.
+            # Se escala por el gradiente de mercado de ZPIndex para evitar el sesgo
+            # donde tipologías chicas (monoambientes) quedan subestimadas al medirse
+            # contra una mediana global dominada por los 2 ambientes.
+            reg_aviso = _detectar_region(a, region)
+            ref_amb = zpindex.referencia(reg_aviso, amb) if (reg_aviso and amb) else None
+            ref_2amb = zpindex.referencia(reg_aviso, 2) if reg_aviso else None
+
+            if med_def_global and ref_amb and ref_2amb and ref_2amb > 0:
+                a["mediana_usada"] = med_def_global * (ref_amb / ref_2amb)
+                a["mediana_origen"] = "global ajustada por ZPIndex"
+            else:
+                a["mediana_usada"] = med_def_global
+                a["mediana_origen"] = "global"
 
     for a in avisos:
         texto = " ".join(
@@ -1145,6 +1212,56 @@ def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float =
             else:
                 valor = 0.35
         a["valor_vs_mercado"] = round(valor, 3)
+
+        # --- señal absoluta informativa: vs_zpindex y nota_zpindex ---
+        reg_aviso = _detectar_region(a, region)
+        amb_aviso = _entero(a.get("ambientes"))
+        ref_zp = zpindex.referencia_total(reg_aviso, amb_aviso) if (reg_aviso and amb_aviso) else None
+
+        # Se compara alquiler SIN expensas sobre m² TOTALES.
+        #
+        # La primera versión usaba m² cubiertos, porque es lo que ZPIndex
+        # destaca. El problema es que Zonaprop no los publica: 0 de 30 tarjetas
+        # reales traen "m² cub." y 0 de 369 avisos guardados lo tienen. La
+        # cobertura de vs_zpindex era del 1%, y sobre esa muestra el resumen de
+        # la corrida daba "199% por encima de la referencia".
+        #
+        # El informe publica la cubierta Y el balcón por separado, así que la
+        # referencia se recalcula sobre la suma (ver REFERENCIA_TOTAL), que es
+        # la misma base que el "m² tot." de las tarjetas.
+        #
+        # Se excluyen los avisos con m2_confiable=False: ahí los m² totales
+        # incluyen una terraza grande y no son comparables contra una unidad
+        # media de ZPIndex.
+        m2_val = a.get("m2_total") if a.get("m2_confiable", True) else None
+        try:
+            m2_cub_num = float(m2_val) if m2_val is not None else None
+        except (TypeError, ValueError):
+            m2_cub_num = None
+
+        alq_pesos = alquiler_en_pesos(a, dolar)
+
+        if ref_zp and m2_cub_num and m2_cub_num > 0 and alq_pesos is not None and alq_pesos > 0:
+            costo_cub_m2 = alq_pesos / m2_cub_num
+            ratio_zp = round(costo_cub_m2 / ref_zp, 2)
+            a["vs_zpindex"] = ratio_zp
+            a["region_zpindex"] = reg_aviso
+
+            diff_pct = round((ratio_zp - 1.0) * 100)
+            reg_label = "CABA" if reg_aviso == "caba" else ("GBA Norte" if reg_aviso == "gba_norte" else reg_aviso.upper())
+            amb_label = f"{amb_aviso} amb"
+
+            if diff_pct > 0:
+                a["nota_zpindex"] = f"{diff_pct}% por encima de la referencia ZPIndex para {reg_label} {amb_label}"
+            elif diff_pct < 0:
+                a["nota_zpindex"] = f"{abs(diff_pct)}% por debajo de la referencia ZPIndex para {reg_label} {amb_label}"
+            else:
+                a["nota_zpindex"] = f"en línea con la referencia ZPIndex para {reg_label} {amb_label}"
+        else:
+            a["vs_zpindex"] = None
+            a["nota_zpindex"] = None
+            if reg_aviso:
+                a["region_zpindex"] = reg_aviso
 
         # --- calidad ---
         pts, pos, neg = señales(texto, a)

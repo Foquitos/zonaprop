@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import statistics
 import sys
 from pathlib import Path
 
@@ -47,6 +48,7 @@ CAMPOS_CSV = [
     "costo_mensual", "costo_m2", "costo_m2_ranking",
     "m2_total", "m2_cubierto", "m2_cubierto_estimado", "m2_confiable",
     "datos_sospechosos", "mediana_usada", "mediana_origen",
+    "vs_zpindex", "nota_zpindex",
     "ambientes", "dormitorios", "banos", "cocheras",
     "antiguedad_anios", "antiguedad_label", "estado_unidad",
     "orientacion", "disposicion", "luminosidad", "direccion", "barrio",
@@ -234,6 +236,25 @@ def cmd_rankear(args):
         print(f"{i:>2} {a['score']:>5.1f} {_plata(a['costo_mensual']):>12} "
               f"{_plata(a['costo_m2']):>8} {a.get('m2_total') or '-':>4}  "
               f"{(a.get('direccion') or a.get('barrio') or '')[:44]}")
+
+    ratios_zp = [a["vs_zpindex"] for a in vivos if a.get("vs_zpindex") is not None]
+    # Con menos de 10 avisos la mediana no dice nada sobre "la búsqueda": mejor
+    # no imprimir la línea que imprimir un número que se lee como un hallazgo.
+    if len(ratios_zp) >= 10:
+        med_ratio = statistics.median(ratios_zp)
+        diff_pct = round((med_ratio - 1.0) * 100)
+        regiones = [a.get("region_zpindex") for a in vivos if a.get("region_zpindex")]
+        es_gba = (regiones.count("gba_norte") > regiones.count("caba")) if regiones else False
+        reg_txt = "GBA Norte" if es_gba else "CABA"
+        fecha_txt = "agosto 2026"
+
+        if diff_pct > 0:
+            print(f"\nEsta búsqueda está {diff_pct}% por encima de la referencia ZPIndex ({reg_txt}, {fecha_txt})")
+        elif diff_pct < 0:
+            print(f"\nEsta búsqueda está {abs(diff_pct)}% por debajo de la referencia ZPIndex ({reg_txt}, {fecha_txt})")
+        else:
+            print(f"\nEsta búsqueda está en línea con la referencia ZPIndex ({reg_txt}, {fecha_txt})")
+
     print(f"\n-> {carpeta / 'ranking.csv'}")
     return 0
 
