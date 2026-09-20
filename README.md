@@ -20,6 +20,12 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
+Para desarrollo y correr la suite de tests (`python -m pytest tests/`):
+
+```bash
+pip install -r requirements-dev.txt
+```
+
 ## Uso: el menú
 
 ```bash

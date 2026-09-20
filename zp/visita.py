@@ -8,12 +8,7 @@ import urllib.parse
 from pathlib import Path
 
 
-def _plata(v) -> str:
-    if v is None:
-        return "-"
-    if v == 0:
-        return "$0"
-    return f"${v:,.0f}".replace(",", ".")
+from zp.comun import _plata
 
 
 def generar_ficha_visita_html(run: str, top_avisos: list[dict]) -> str:

@@ -9,14 +9,7 @@ import urllib.parse
 from pathlib import Path
 
 from zp import geocodificador
-
-
-def _plata(v) -> str:
-    if v is None:
-        return "-"
-    if v == 0:
-        return "$0"
-    return f"${v:,.0f}".replace(",", ".")
+from zp.comun import _plata
 
 
 def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:

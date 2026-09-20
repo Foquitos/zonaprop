@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from zp import fotos as mod_fotos
 from zp import geocodificador, parseo, scoring, urls, zonas
+from zp.comun import _plata
 
 # Playwright se importa recién cuando hace falta un navegador. `rankear`,
 # `dossier`, `zonas` y `menu` trabajan sobre archivos ya bajados y tienen que
@@ -48,12 +49,12 @@ CAMPOS_CSV = [
     "ambientes", "dormitorios", "banos", "cocheras",
     "antiguedad_anios", "antiguedad_label", "estado_unidad",
     "orientacion", "disposicion", "luminosidad", "direccion", "barrio",
-    "latitude", "longitude", "entorno_tipo",
-    "politica_mascotas", "ajuste_frecuencia", "ajuste_indice", "deposito_monto", "plazo_contrato",
-    "es_dueno_directo", "caja_inicial_total", "caja_inicial_resumen",
+    "latitude", "longitude", "entorno_tipo", "avenidas_cercanas", "estaciones_cercanas",
+    "garantias_aceptadas", "politica_mascotas", "ajuste_frecuencia", "ajuste_indice", "deposito_monto", "plazo_contrato", "costos_adicionales",
+    "es_dueno_directo", "caja_inicial_total", "caja_inicial_resumen", "proyeccion_resumen",
     "baja_precio", "descuento_porcentaje", "alerta_gran_angular",
     "publicador", "dias_publicado", "es_duplicado", "disparidad_precio", "nota_negociacion",
-    "riesgo_humedad", "fotos_totales", "descartado", "url",
+    "riesgo_humedad", "motivos_riesgo", "fotos_totales", "descartado", "url",
 ]
 
 
@@ -153,8 +154,8 @@ def cmd_rankear(args):
                               "amenities", "fecha_publicacion", "latitude", "longitude"):
                         if prev.get(k):
                             d[k] = prev[k]
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  ! Error al cargar datos de detalle previos ({type(e).__name__}: {e}). Se re-rankeará SIN los datos de detalle previos.")
 
     ordenados = scoring.puntuar(datos, presupuesto=args.presupuesto, dolar=args.dolar)
 
@@ -199,7 +200,11 @@ def cmd_rankear(args):
         w = csv.DictWriter(f, fieldnames=CAMPOS_CSV, extrasaction="ignore")
         w.writeheader()
         for a in ordenados:
-            w.writerow(a)
+            fila = {
+                k: "; ".join(str(item) for item in v) if isinstance(v, (list, tuple)) else v
+                for k, v in a.items()
+            }
+            w.writerow(fila)
 
     vivos = [a for a in ordenados if not a["descartado"]]
     print(f"{len(ordenados)} avisos · {len(vivos)} pasan los filtros duros\n")
@@ -567,14 +572,6 @@ def cmd_zonas(args):
 def cmd_menu(args):
     from zp.menu import abrir
     return abrir()
-
-
-def _plata(v) -> str:
-    if v is None:
-        return "-"
-    if v == 0:
-        return "$0"
-    return f"${v:,.0f}".replace(",", ".")
 
 
 # --------------------------------------------------------------------------- #

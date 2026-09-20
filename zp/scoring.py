@@ -20,6 +20,8 @@ import re
 import statistics
 import unicodedata
 
+from zp.comun import _plata
+
 PESOS = {
     "valor": 45,
     "calidad": 35,
@@ -1146,10 +1148,3 @@ def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float =
 
     return sorted(avisos, key=lambda x: x["score"], reverse=True)
 
-
-def _plata(v) -> str:
-    if v is None:
-        return "-"
-    if v == 0:
-        return "$0"
-    return f"${v:,.0f}".replace(",", ".")
