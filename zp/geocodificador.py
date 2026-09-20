@@ -7,6 +7,7 @@ y Photon, con caché persistente en disco para máxima velocidad y cero saturaci
 
 from __future__ import annotations
 
+import atexit
 import json
 import re
 import time
@@ -19,6 +20,7 @@ CACHE_FILE = RAIZ / "salida" / ".geocache.json"
 
 _CACHE: dict[str, list[float] | None] = {}
 _CARGADO = False
+_CAMBIOS_PENDIENTES = 0
 
 
 def _cargar_cache():
@@ -28,17 +30,27 @@ def _cargar_cache():
     if CACHE_FILE.exists():
         try:
             _CACHE = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception as e:
+            print(f"  [geocodificador] Error al leer caché existente ({e}), inicializando vacía.")
             _CACHE = {}
     _CARGADO = True
 
 
-def _guardar_cache():
+def guardar_cache():
+    """Persiste la caché acumulada en disco solo si hubo modificaciones nuevas."""
+    global _CAMBIOS_PENDIENTES
+    if _CAMBIOS_PENDIENTES == 0:
+        return
     try:
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         CACHE_FILE.write_text(json.dumps(_CACHE, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+        _CAMBIOS_PENDIENTES = 0
+    except Exception as e:
+        print(f"  [geocodificador] Error al guardar caché en disco: {e}")
+
+
+_guardar_cache = guardar_cache
+atexit.register(guardar_cache)
 
 
 def normalizar_direccion(dir_txt: str) -> str:
@@ -66,8 +78,19 @@ def tiene_altura_o_calle(dir_txt: str) -> bool:
     return len(d) >= 5
 
 
+def esta_en_cache(direccion: str, barrio: str = "") -> bool:
+    """Verifica si una dirección ya fue consultada y existe en la caché local."""
+    _cargar_cache()
+    dir_limpia = normalizar_direccion(direccion)
+    if not tiene_altura_o_calle(dir_limpia):
+        return False
+    clave = f"{dir_limpia.lower()}|{barrio.lower()}".strip()
+    return clave in _CACHE
+
+
 def geocodificar_direccion(direccion: str, barrio: str = "") -> tuple[float, float] | None:
     """Consulta OpenStreetMap Nominatim para obtener la coordenada exacta de la calle y altura."""
+    global _CAMBIOS_PENDIENTES
     _cargar_cache()
 
     dir_limpia = normalizar_direccion(direccion)
@@ -87,7 +110,8 @@ def geocodificar_direccion(direccion: str, barrio: str = "") -> tuple[float, flo
 
     coords = None
     try:
-        time.sleep(0.3)  # Respetar rate limit de OSM
+        # Nominatim exige un máximo estricto de 1 request por segundo según su política de uso.
+        time.sleep(1.0)
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             if data and isinstance(data, list) and len(data) > 0:
@@ -95,11 +119,26 @@ def geocodificar_direccion(direccion: str, barrio: str = "") -> tuple[float, flo
                 lon = float(data[0]["lon"])
                 if -35.2 <= lat <= -34.2 and -59.0 <= lon <= -58.0:
                     coords = (round(lat, 6), round(lon, 6))
-    except Exception:
-        coords = None
+    except Exception as e:
+        # Un fallo de red NO es una respuesta: es no haber preguntado.
+        # Si lo cacheáramos como None, un timeout o un corte de wifi de dos
+        # segundos dejaría esa dirección marcada como "no geocodificable" para
+        # siempre, porque la corrida siguiente encontraría la clave en la caché
+        # y devolvería None sin volver a consultar. Se sale sin escribir nada,
+        # así se reintenta en la próxima corrida.
+        print(f"  [geocodificador] Falló la consulta de '{dir_limpia}' ({type(e).__name__}); "
+              "no la cacheo para poder reintentarla.")
+        return None
 
+    # Acá sí hay respuesta de Nominatim. Un None ahora significa "contestó y no
+    # encontró nada" (o cayó fuera del bounding box de AMBA), que es un negativo
+    # legítimo y conviene cachear para no volver a preguntar lo mismo.
     _CACHE[clave] = [coords[0], coords[1]] if coords else None
-    _guardar_cache()
+    _CAMBIOS_PENDIENTES += 1
+    # Guardamos periódicamente cada 25 consultas a red para evitar reescribir el disco en cada llamada,
+    # manteniendo persistencia intermedia si el proceso se interrumpe.
+    if _CAMBIOS_PENDIENTES >= 25:
+        guardar_cache()
     return coords
 
 

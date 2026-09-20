@@ -620,4 +620,122 @@ def test_geocodificador_real():
     assert geocodificador.obtener_coordenadas_reales(aviso_con_gps) == (-34.614, -58.445)
 
 
+def test_fallo_de_red_no_envenena_la_cache(monkeypatch):
+    """Un corte de red NO debe quedar cacheado como 'no geocodificable'.
 
+    Si se cachea el None de un timeout, esa dirección no se reintenta nunca más:
+    la corrida siguiente encuentra la clave y devuelve None sin consultar. El
+    negativo legítimo (Nominatim contestó y no encontró nada) sí se cachea.
+    """
+    from zp import geocodificador
+
+    geocodificador._cargar_cache()
+    calles = dict(geocodificador._CACHE)  # restaurar al final
+    try:
+        geocodificador._CACHE.clear()
+
+        # 1) La red falla: no se cachea nada, se puede reintentar.
+        def _explota(*a, **k):
+            raise TimeoutError("connection timed out")
+
+        monkeypatch.setattr(geocodificador.urllib.request, "urlopen", _explota)
+        monkeypatch.setattr(geocodificador.time, "sleep", lambda s: None)
+        assert geocodificador.geocodificar_direccion("Beauchef 1300", "Caballito") is None
+        assert geocodificador._CACHE == {}, "un fallo de red no se debe cachear"
+
+        # 2) Nominatim contesta y no encuentra nada: eso sí se cachea.
+        class _RespuestaVacia:
+            def read(self):
+                return b"[]"
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+
+        monkeypatch.setattr(geocodificador.urllib.request, "urlopen",
+                            lambda *a, **k: _RespuestaVacia())
+        assert geocodificador.geocodificar_direccion("Beauchef 1300", "Caballito") is None
+        assert geocodificador._CACHE == {"beauchef 1300|caballito": None}
+    finally:
+        geocodificador._CACHE.clear()
+        geocodificador._CACHE.update(calles)
+        geocodificador._CAMBIOS_PENDIENTES = 0
+
+
+def test_parsear_detalle_coordenadas_invertidas():
+    """Verifica que si el JSON trae longitude antes de latitude, no queden invertidas."""
+    html_inv = '<html><script>{"longitude": -58.456789, "latitude": -34.567890}</script></html>'
+    d = parseo.parsear_detalle(html_inv)
+    assert d.get("latitude") == -34.567890
+    assert d.get("longitude") == -58.456789
+
+
+def test_exportar_geojson_con_geocodificacion_fallback(tmp_path, monkeypatch):
+    """Verifica que un aviso sin latitude/longitude use el geocodificador y termine en el GeoJSON."""
+    import json
+    from zp import mapa
+
+    monkeypatch.setattr(
+        "zp.geocodificador.geocodificar_direccion",
+        lambda direccion, barrio="": (-34.5678, -58.4567)
+    )
+
+    aviso_sin_coords = {
+        "id": "59999999",
+        "score": 85.0,
+        "direccion": "Av. Cabildo 2000",
+        "barrio": "Belgrano",
+        "costo_mensual": 900000,
+        "descartado": False,
+    }
+
+    gj = mapa.exportar_geojson("test-geocoding", [aviso_sin_coords], tmp_path)
+    assert gj.exists()
+    datos = json.loads(gj.read_text(encoding="utf-8"))
+    assert len(datos["features"]) == 1
+    feat = datos["features"][0]
+    # En GeoJSON las coordenadas van [longitud, latitud]
+    assert feat["geometry"]["coordinates"] == [-58.4567, -34.5678]
+    assert feat["properties"]["id"] == "59999999"
+    assert feat["properties"]["direccion"] == "Av. Cabildo 2000"
+
+
+def test_rankear_geocodifica_avisos_vivos(tmp_path, monkeypatch):
+    """Verifica que el comando rankear geocodifique los candidatos vivos y persista coords."""
+    import json
+
+    monkeypatch.setattr(
+        "zp.geocodificador.geocodificar_direccion",
+        lambda direccion, barrio="": (-34.5800, -58.4200)
+    )
+
+    aviso = {
+        "id": "101",
+        "direccion": "Güemes 3500",
+        "barrio": "Palermo",
+        "precio": 800000,
+        "moneda": "ARS",
+        "expensas": 80000,
+        "expensas_informadas": True,
+        "m2_total": 45,
+        "ambientes": 2,
+    }
+    carpeta_run = tmp_path / "test-run"
+    carpeta_run.mkdir(parents=True, exist_ok=True)
+    (carpeta_run / "listado.json").write_text(json.dumps([aviso]), encoding="utf-8")
+
+    class Args:
+        run = "test-run"
+        presupuesto = 1000000
+        dolar = 1450
+        top = 10
+
+    monkeypatch.setattr(cli, "SALIDA", tmp_path)
+
+    ret = cli.cmd_rankear(Args)
+    assert ret == 0
+
+    ranking = json.loads((carpeta_run / "ranking.json").read_text(encoding="utf-8"))
+    assert len(ranking) == 1
+    assert ranking[0]["latitude"] == -34.5800
+    assert ranking[0]["longitude"] == -58.4200

@@ -307,6 +307,8 @@ def parsear_detalle(html: str) -> dict:
         m_inv = _RE_LAT_LNG_INV.search(html)
         if m_inv:
             try:
+                # _RE_LAT_LNG_INV captura longitude primero (grupo 1) y latitude segundo (grupo 2).
+                # Se invierten explícitamente para no guardar coordenadas dadas vuelta.
                 f_lng = float(m_inv.group(1))
                 f_lat = float(m_inv.group(2))
                 if abs(f_lat) > 0 and abs(f_lng) > 0:

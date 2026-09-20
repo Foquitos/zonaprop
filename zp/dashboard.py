@@ -8,7 +8,7 @@ import json
 import urllib.parse
 from pathlib import Path
 
-from zp import zonas
+from zp import geocodificador
 
 
 def _plata(v) -> str:
@@ -59,7 +59,7 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
         url = a.get("url") or "#"
         ruta_contacto = f"contactos/{aid}.jpg"
 
-        lat_lng = zonas.obtener_coordenadas(a)
+        lat_lng = geocodificador.obtener_coordenadas_reales(a)
         lat = lat_lng[0] if lat_lng else None
         lng = lat_lng[1] if lat_lng else None
 

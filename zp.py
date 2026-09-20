@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from zp import fotos as mod_fotos
-from zp import parseo, scoring, urls, zonas
+from zp import geocodificador, parseo, scoring, urls, zonas
 
 # Playwright se importa recién cuando hace falta un navegador. `rankear`,
 # `dossier`, `zonas` y `menu` trabajan sobre archivos ya bajados y tienen que
@@ -157,6 +157,40 @@ def cmd_rankear(args):
             pass
 
     ordenados = scoring.puntuar(datos, presupuesto=args.presupuesto, dolar=args.dolar)
+
+    # Geocodificar avisos vivos (no descartados) que aún no tengan coordenadas
+    vivos_sin_coords = [
+        a for a in ordenados
+        if not a.get("descartado") and (a.get("latitude") is None or a.get("longitude") is None)
+    ]
+    if vivos_sin_coords:
+        total = len(vivos_sin_coords)
+        resueltos = 0
+        fallidos = 0
+        hits_cache = 0
+        try:
+            for i, a in enumerate(vivos_sin_coords, 1):
+                dir_txt = a.get("direccion") or ""
+                barrio_txt = a.get("barrio") or ""
+                en_cache = geocodificador.esta_en_cache(dir_txt, barrio_txt)
+                if en_cache:
+                    hits_cache += 1
+
+                # Feedback de progreso: segundo a segundo si consulta Nominatim, o cada 10 si viene de caché
+                if i == 1 or i == total or not en_cache or i % 10 == 0:
+                    print(f"  Geocodificando {i}/{total}... (cache: {hits_cache})", flush=True)
+
+                coords = geocodificador.obtener_coordenadas_reales(a)
+                if coords:
+                    a["latitude"] = coords[0]
+                    a["longitude"] = coords[1]
+                    resueltos += 1
+                else:
+                    fallidos += 1
+        finally:
+            geocodificador.guardar_cache()
+
+        print(f"  Geocodificación: {resueltos} resueltos, {fallidos} fallaron ({hits_cache} desde caché)\n", flush=True)
 
     (carpeta / "ranking.json").write_text(
         json.dumps(ordenados, ensure_ascii=False, indent=2), encoding="utf-8"

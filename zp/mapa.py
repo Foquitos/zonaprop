@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 
-from zp import zonas
+from zp import geocodificador
 
 
 def _plata(v) -> str:
@@ -25,7 +25,7 @@ def exportar_geojson(run: str, avisos: list[dict], carpeta: Path) -> Path:
     for idx, a in enumerate(avisos, start=1):
         if a.get("descartado"):
             continue
-        lat_lng = zonas.obtener_coordenadas(a)
+        lat_lng = geocodificador.obtener_coordenadas_reales(a)
         if not lat_lng:
             continue
         lat, lng = lat_lng
@@ -72,7 +72,7 @@ def exportar_kml(run: str, avisos: list[dict], carpeta: Path) -> Path:
     for idx, a in enumerate(avisos, start=1):
         if a.get("descartado"):
             continue
-        lat_lng = zonas.obtener_coordenadas(a)
+        lat_lng = geocodificador.obtener_coordenadas_reales(a)
         if not lat_lng:
             continue
         lat, lng = lat_lng
