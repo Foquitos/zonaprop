@@ -20,7 +20,7 @@ import re
 import statistics
 import unicodedata
 
-from zp import zpindex
+from zp import barrios_populares, zpindex
 from zp.comun import _plata
 
 PESOS = {
@@ -1320,6 +1320,20 @@ def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float =
         a["entorno_tipo"] = entorno["entorno_tipo"]
         a["avenidas_cercanas"] = entorno["avenidas_cercanas"]
         a["estaciones_cercanas"] = entorno["estaciones_cercanas"]
+
+        # --- cercanía a barrios populares (RENABAP) ---
+        # Necesita coordenadas, que se geocodifican DESPUÉS de la primera
+        # pasada de puntuar(). Por eso cmd_rankear vuelve a puntuar una vez que
+        # las tiene: en la primera pasada esto simplemente no aporta nada.
+        info_bp, pts_bp, detalle_bp = barrios_populares.evaluar(
+            a.get("latitude"), a.get("longitude")
+        )
+        a["barrio_popular"] = barrios_populares.descripcion(info_bp) if info_bp else None
+        a["barrio_popular_distancia_m"] = info_bp["distancia_m"] if info_bp else None
+        a["barrio_popular_nombre"] = info_bp["nombre"] if info_bp else None
+        if pts_bp:
+            pts += pts_bp
+            neg.append(detalle_bp)
 
         # --- caja inicial de entrada ---
         caja_tot, caja_res, caja_des = calcular_caja_inicial(a, dolar)

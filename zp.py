@@ -57,7 +57,9 @@ CAMPOS_CSV = [
     "es_dueno_directo", "caja_inicial_total", "caja_inicial_resumen", "proyeccion_resumen",
     "baja_precio", "descuento_porcentaje", "nota_historial", "alerta_gran_angular",
     "publicador", "dias_publicado", "es_duplicado", "disparidad_precio", "nota_negociacion",
-    "riesgo_humedad", "motivos_riesgo", "fotos_totales", "descartado", "url",
+    "riesgo_humedad", "motivos_riesgo",
+    "barrio_popular", "barrio_popular_distancia_m", "barrio_popular_nombre",
+    "fotos_totales", "descartado", "url",
 ]
 
 
@@ -215,6 +217,23 @@ def cmd_rankear(args):
             geocodificador.guardar_cache()
 
         print(f"  Geocodificación: {resueltos} resueltos, {fallidos} fallaron ({hits_cache} desde caché)\n", flush=True)
+
+        # Recién ahora hay coordenadas, así que se vuelve a puntuar: la
+        # cercanía a barrios populares del RENABAP depende de la ubicación y en
+        # la primera pasada todavía no existía. Es sólo CPU, no vuelve a pegarle
+        # a la red ni a geocodificar nada (las coordenadas ya están en el aviso).
+        ordenados = scoring.puntuar(
+            ordenados,
+            presupuesto=args.presupuesto,
+            dolar=dolar,
+            historial=mod_historial.ultimo_precio(hist),
+        )
+        cerca = [a for a in ordenados
+                 if not a.get("descartado")
+                 and (a.get("barrio_popular_distancia_m") or 99999) <= 500]
+        if cerca:
+            print(f"  {len(cerca)} de los avisos vivos están a menos de 500 m "
+                  "de un barrio popular del RENABAP\n")
 
     (carpeta / "ranking.json").write_text(
         json.dumps(ordenados, ensure_ascii=False, indent=2), encoding="utf-8"
