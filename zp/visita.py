@@ -28,7 +28,17 @@ def generar_ficha_visita_html(run: str, top_avisos: list[dict]) -> str:
         gar = html.escape(", ".join(a.get("garantias_aceptadas") or ["Consultar"]))
         url = a.get("url") or "#"
 
-        preguntas = a.get("preguntas_visita") or []
+        dist_bp = a.get("barrio_popular_distancia_m")
+        nombre_bp = a.get("barrio_popular_nombre")
+        bp_texto = a.get("barrio_popular")
+        bp_meta = ""
+        if bp_texto:
+            bp_meta = f'<div class="meta-item" style="grid-column: span 3;"><strong>Barrio popular más cercano:</strong> {html.escape(bp_texto)}</div>'
+
+        preguntas = list(a.get("preguntas_visita") or [])
+        if dist_bp is not None and dist_bp <= 600:
+            nombre = nombre_bp or "un barrio popular"
+            preguntas.append(f"¿Cómo es la cuadra de noche? El RENABAP registra {nombre} a {dist_bp} m.")
         preguntas_li = "".join(f"<li><span class='check-box'></span> {html.escape(p)}</li>" for p in preguntas)
 
         score_badge_class = "score-high" if score >= 70 else ("score-mid" if score >= 50 else "score-low")
@@ -51,6 +61,7 @@ def generar_ficha_visita_html(run: str, top_avisos: list[dict]) -> str:
             <div class="meta-item"><strong>Garantías:</strong> {gar}</div>
             <div class="meta-item"><strong>Barrio / ID:</strong> {barrio} (ID: {aid})</div>
             <div class="meta-item"><strong>Link:</strong> <a href="{url}" target="_blank">Ver en Zonaprop</a></div>
+            {bp_meta}
           </div>
 
           <div class="prop-section">
@@ -314,16 +325,27 @@ def generar_ficha_visita(run: str, top_avisos: list[dict], carpeta: Path) -> Pat
         gar = ", ".join(a.get("garantias_aceptadas") or ["Consultar"])
         url = a.get("url") or "#"
 
+        dist_bp = a.get("barrio_popular_distancia_m")
+        nombre_bp = a.get("barrio_popular_nombre")
+        bp_texto = a.get("barrio_popular")
+
         lineas += [
             f"### #{idx} · {dir_txt} ({tipo} · Score {score})",
             f"- **ID**: `{aid}` | **Barrio**: {barrio}",
+        ]
+        if bp_texto:
+            lineas.append(f"- **Barrio popular más cercano**: {bp_texto}")
+        lineas += [
             f"- **Costo Mensual**: {costo} | **Caja de Entrada**: {caja} | **Ambientes**: {amb} amb ({m2} m²)",
             f"- **Garantías declaradas**: {gar}",
             f"- **Link**: [Ver en Zonaprop]({url})",
             "",
             "**🔍 Preguntas específicas para hacerle al martillero in situ:**",
         ]
-        preguntas = a.get("preguntas_visita") or []
+        preguntas = list(a.get("preguntas_visita") or [])
+        if dist_bp is not None and dist_bp <= 600:
+            nombre = nombre_bp or "un barrio popular"
+            preguntas.append(f"¿Cómo es la cuadra de noche? El RENABAP registra {nombre} a {dist_bp} m.")
         for p in preguntas:
             lineas.append(f"- [ ] {p}")
 

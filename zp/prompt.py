@@ -14,6 +14,31 @@ def generar_prompt_diagnostico(run: str, top_avisos: list[dict], carpeta: Path) 
     total_avisos = len(top_avisos)
     ids_lista = ", ".join(str(a["id"]) for a in top_avisos[:10])
 
+    seccion_contexto = ""
+    # Sólo los que están efectivamente cerca. Listar uno a 2.186 m —veinte
+    # cuadras— bajo el título "candidatos que registran cercanía" es ruido que
+    # le hace perder foco al análisis. El umbral acompaña al del badge del
+    # dashboard y al de la pregunta de la ficha de visita.
+    UMBRAL_CERCANIA_M = 600
+    avisos_con_bp = [
+        a for a in top_avisos
+        if a.get("barrio_popular")
+        and (a.get("barrio_popular_distancia_m") or 10**9) <= UMBRAL_CERCANIA_M
+    ]
+    if avisos_con_bp:
+        items_bp = "\n".join(
+            f"- **Aviso {a['id']}** ({a.get('direccion') or 'Sin dirección'}): {a['barrio_popular']}."
+            for a in avisos_con_bp
+        )
+        seccion_contexto = f"""
+
+---
+
+## 📍 CONTEXTO POR AVISO (RENABAP)
+El RENABAP (Registro Nacional de Barrios Populares) es el registro oficial del Estado que mide la informalidad en la tenencia de la tierra y el acceso a servicios básicos (no es una estadística de delito ni seguridad). Datos factuales de distancia y contexto para los candidatos que registran cercanía:
+{items_bp}
+"""
+
     contenido = f"""# 🏛️ INSTRUCCIONES DE AUDITORÍA FORENSE INMOBILIARIA
 
 **Búsqueda**: `{run}`
@@ -29,7 +54,7 @@ El usuario busca una vivienda para alquilar por 2 años, cuenta con garante en C
 1. **Detectar vicios ocultos de humedad, estructurales o de instalaciones** antes de visitar.
 2. **Desarmar distorsiones espaciales** (fotos con lente gran angular vs m² cubiertos reales).
 3. **Evaluar la viabilidad económica y contractual** (caja inicial de entrada, ajuste, expensas reales).
-4. **Identificar oportunidades de negociación agresiva** (duplicados entre inmobiliarias, propiedades estancadas o con bajas de precio).
+4. **Identificar oportunidades de negociación agresiva** (duplicados entre inmobiliarias, propiedades estancadas o con bajas de precio).{seccion_contexto}
 
 ---
 

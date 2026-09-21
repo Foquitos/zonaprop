@@ -360,8 +360,8 @@ def cmd_dossier(args):
         "",
         "## 📊 Matriz Resumen de Candidatos",
         "",
-        "| # | Score | ID | Dirección | Tipo | Costo/mes | $/m² cub | Amb | Mascotas | Garantías | Caja Entrada Est. | Negociación |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| # | Score | ID | Dirección | Tipo | Costo/mes | $/m² cub | Amb | Mascotas | Garantías | Caja Entrada Est. | Negociación | Barrio pop. |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
 
     for idx, a in enumerate(con_fotos, start=1):
@@ -374,8 +374,10 @@ def cmd_dossier(args):
         gar_lbl = "/".join(a.get("garantias_aceptadas") or ["Consultar"])[:22]
         caja_lbl = _plata(a.get("caja_inicial_total"))
         neg_lbl = "Duplicado" if a.get("es_duplicado") else ("Baja precio" if a.get("baja_precio") else ("Dueño dir." if a.get("es_dueno_directo") else "—"))
+        bp_dist = a.get("barrio_popular_distancia_m")
+        bp_lbl = f"{bp_dist} m" if bp_dist is not None else "—"
         lineas.append(
-            f"| {idx} | **{a['score']}** | [{a['id']}](#{a['id']}--score-{str(a['score']).replace('.', '')}) | {dir_lbl} | {tipo_lbl} | {costo_lbl} | {m2_lbl} | {amb_lbl} | {masc_lbl} | {gar_lbl} | {caja_lbl} | {neg_lbl} |"
+            f"| {idx} | **{a['score']}** | [{a['id']}](#{a['id']}--score-{str(a['score']).replace('.', '')}) | {dir_lbl} | {tipo_lbl} | {costo_lbl} | {m2_lbl} | {amb_lbl} | {masc_lbl} | {gar_lbl} | {caja_lbl} | {neg_lbl} | {bp_lbl} |"
         )
 
     lineas += ["", "---", ""]
@@ -429,6 +431,8 @@ def cmd_dossier(args):
             f"  direccion: \"{a.get('direccion') or '?'}\"",
             f"  barrio: \"{a.get('barrio') or '?'}\"",
             f"  entorno: \"{a.get('entorno_tipo') or 'Residencial'}\"",
+            f"  barrio_popular_cercano: \"{(a.get('barrio_popular') or 'sin dato').replace('\"', '\\\"')}\"",
+            f"  barrio_popular_distancia_m: {a.get('barrio_popular_distancia_m') if a.get('barrio_popular_distancia_m') is not None else 'null'}",
             "mercado:",
             f"  dias_publicado: {a.get('dias_publicado') if a.get('dias_publicado') is not None else 'null'}",
             f"  baja_precio: {'true' if a.get('baja_precio') else 'false'}",
@@ -449,6 +453,7 @@ def cmd_dossier(args):
             f"{a.get('disposicion') or '?'} · orientación {a.get('orientacion') or '?'} · "
             f"{a.get('luminosidad') or '?'}",
             f"- **Dónde**: {a.get('direccion') or '?'} — {a.get('barrio') or '?'}",
+            f"- **Barrio popular más cercano**: {a.get('barrio_popular') or 'sin dato (falta geocodificar)'}",
             f"- **A favor**: {', '.join(a.get('motivos_a_favor') or []) or '—'}",
             f"- **En contra**: {', '.join(a.get('motivos_en_contra') or []) or '—'}",
             f"- **Riesgo de humedad a priori**: {a.get('riesgo_humedad', 0)} "

@@ -107,3 +107,140 @@ def test_no_dice_cero_cuadras():
             "familias": 100, "dentro": False}
     assert "0 cuadras" not in bp.descripcion(info)
     assert "1 cuadras" not in bp.descripcion(info)
+
+
+# --------------------------------------------------------------------------- #
+# Visualización y artefactos (dossier, dashboard, visita, prompt)
+# --------------------------------------------------------------------------- #
+import importlib.util as _il
+
+_spec = _il.spec_from_file_location("cli_zp", Path(__file__).resolve().parents[1] / "zp.py")
+cli = _il.module_from_spec(_spec)
+_spec.loader.exec_module(cli)
+
+
+def test_dossier_con_barrio_popular_incluye_distancia(tmp_path, monkeypatch):
+    """El dossier de un aviso con barrio_popular incluye la distancia en el markdown."""
+    import json
+
+    monkeypatch.setattr(cli, "SALIDA", tmp_path)
+    carpeta = tmp_path / "run-dossier"
+    carpeta.mkdir(parents=True, exist_ok=True)
+
+    aviso = {
+        "id": "1001",
+        "score": 82.5,
+        "direccion": "Pumacahua al 1600",
+        "barrio": "Flores",
+        "precio": 650000,
+        "moneda": "ARS",
+        "costo_mensual": 720000,
+        "descartado": False,
+        "barrio_popular": "a 602 m (~5 cuadras) de la villa Padre Rodolfo Ricciardelli (Ex Villa 1-11-14) (RENABAP), 15.400 familias",
+        "barrio_popular_distancia_m": 602,
+        "barrio_popular_nombre": "Padre Rodolfo Ricciardelli (Ex Villa 1-11-14)",
+    }
+    (carpeta / "ranking.json").write_text(json.dumps([aviso]), encoding="utf-8")
+
+    class Args:
+        run = "run-dossier"
+        top = 5
+        max_descripcion = 0
+
+    ret = cli.cmd_dossier(Args)
+    assert ret == 0
+
+    dossier_path = carpeta / "dossier.md"
+    assert dossier_path.exists()
+    md = dossier_path.read_text(encoding="utf-8")
+    assert "602" in md
+    assert "Barrio popular" in md or "barrio_popular" in md
+
+
+def test_dashboard_badge_segun_distancia(tmp_path):
+    """El dashboard de un aviso a 300 m incluye el badge, y el de uno a 3000 m no."""
+    from zp import dashboard
+
+    aviso_cerca = {
+        "id": "cerca",
+        "score": 75.0,
+        "direccion": "Av. Varela 1200",
+        "barrio": "Flores",
+        "precio": 700000,
+        "moneda": "ARS",
+        "costo_mensual": 700000,
+        "descartado": False,
+        "barrio_popular": "a 300 m (~3 cuadras) de la villa 1-11-14 (RENABAP), 15.000 familias",
+        "barrio_popular_distancia_m": 300,
+        "barrio_popular_nombre": "Villa 1-11-14",
+    }
+    aviso_lejos = {
+        "id": "lejos",
+        "score": 75.0,
+        "direccion": "Av. Santa Fe 2500",
+        "barrio": "Recoleta",
+        "precio": 700000,
+        "moneda": "ARS",
+        "costo_mensual": 700000,
+        "descartado": False,
+        "barrio_popular": "a 3000 m de un barrio popular",
+        "barrio_popular_distancia_m": 3000,
+        "barrio_popular_nombre": "Barrio Lejano",
+    }
+
+    dash_cerca = dashboard.generar_dashboard_html("run-cerca", [aviso_cerca], tmp_path / "cerca")
+    html_cerca = dash_cerca.read_text(encoding="utf-8")
+    assert "badge badge-renabap" in html_cerca
+    assert "barrio popular a 300 m" in html_cerca
+
+    dash_lejos = dashboard.generar_dashboard_html("run-lejos", [aviso_lejos], tmp_path / "lejos")
+    html_lejos = dash_lejos.read_text(encoding="utf-8")
+    assert "barrio popular a 3000 m" not in html_lejos
+    assert "barrio popular a" not in html_lejos
+
+
+def test_sin_dato_no_rompe_generadores(tmp_path, monkeypatch):
+    """Un aviso sin el dato (None) no rompe ninguno de los cuatro generadores."""
+    import json
+    from zp import dashboard, prompt, visita
+
+    monkeypatch.setattr(cli, "SALIDA", tmp_path)
+    carpeta = tmp_path / "run-sin-dato"
+    carpeta.mkdir(parents=True, exist_ok=True)
+
+    aviso_sin_dato = {
+        "id": "sin_dato",
+        "score": 70.0,
+        "direccion": "Corrientes 1000",
+        "barrio": "Centro",
+        "precio": 600000,
+        "moneda": "ARS",
+        "costo_mensual": 600000,
+        "descartado": False,
+        "barrio_popular": None,
+        "barrio_popular_distancia_m": None,
+        "barrio_popular_nombre": None,
+    }
+
+    # 1. Dossier
+    (carpeta / "ranking.json").write_text(json.dumps([aviso_sin_dato]), encoding="utf-8")
+    class Args:
+        run = "run-sin-dato"
+        top = 5
+        max_descripcion = 0
+
+    ret = cli.cmd_dossier(Args)
+    assert ret == 0
+    assert (carpeta / "dossier.md").exists()
+
+    # 2. Dashboard
+    dash_file = dashboard.generar_dashboard_html("run-sin-dato", [aviso_sin_dato], carpeta)
+    assert dash_file.exists()
+
+    # 3. Visita
+    visita_file = visita.generar_ficha_visita("run-sin-dato", [aviso_sin_dato], carpeta)
+    assert visita_file.exists()
+
+    # 4. Prompt
+    prompt_file = prompt.generar_prompt_diagnostico("run-sin-dato", [aviso_sin_dato], carpeta)
+    assert prompt_file.exists()

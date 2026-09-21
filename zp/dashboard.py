@@ -80,6 +80,10 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
         lat = lat_lng[0] if lat_lng else None
         lng = lat_lng[1] if lat_lng else None
 
+        bp_dist = a.get("barrio_popular_distancia_m")
+        bp_dato = a.get("barrio_popular")
+        bp_popup = f"Barrio popular a {bp_dist} m (RENABAP)" if bp_dist is not None else ""
+
         if lat is not None and lng is not None:
             map_points.append({
                 "id": str(aid),
@@ -92,6 +96,8 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
                 "contacto": ruta_contacto,
                 "lat": float(lat),
                 "lng": float(lng),
+                "barrio_popular_distancia_m": bp_dist,
+                "bp_dist_txt": bp_popup,
             })
 
         # Mensaje de WhatsApp URL-encoded
@@ -118,6 +124,12 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
             badges.append(f'<span class="badge badge-green">📉 -{a.get("descuento_porcentaje")}%</span>')
         if not a.get("m2_confiable"):
             badges.append('<span class="badge badge-orange">TERRAZA</span>')
+        if bp_dist is not None and bp_dist <= 600:
+            badges.append(f'<span class="badge badge-renabap">barrio popular a {bp_dist} m</span>')
+
+        bp_html = ""
+        if bp_dato:
+            bp_html = f"<h4>🏘️ Barrio Popular (RENABAP)</h4>\n                  <p>{html.escape(bp_dato)}</p>"
 
         preguntas_li = "".join(f"<li>{html.escape(p)}</li>" for p in (a.get("preguntas_visita") or []))
 
@@ -162,6 +174,7 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
                 <div>
                   <h4>📍 Micro-entorno y Conectividad</h4>
                   <p>{entorno}</p>
+                  {bp_html}
                   <h4>💰 Desglose Caja Inicial</h4>
                   <p>{caja_entrada}</p>
                   <h4>📈 Evolución Cuota a 24 Meses (IPC 3% proyectado)</h4>
@@ -292,6 +305,10 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
     .badge-gray {{ background: #334155; color: #cbd5e1; }}
     .badge-emerald {{ background: #064e3b; color: #6ee7b7; border: 1px solid #059669; }}
     .badge-amber {{ background: #78350f; color: #fde68a; }}
+    /* Cercanía a un barrio popular del RENABAP. Clase propia y no badge-amber,
+       que ya la usa DUPLICADO: son dos cosas distintas y con el mismo color no
+       se distinguen de un vistazo. */
+    .badge-renabap {{ background: #422006; color: #fcd34d; border: 1px solid #a16207; }}
     .badge-green {{ background: #065f46; color: #a7f3d0; }}
     .badge-orange {{ background: #7c2d12; color: #fed7aa; }}
 
@@ -401,11 +418,14 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
           fillOpacity: 0.9
         }}).addTo(map);
 
+        const bpLine = p.bp_dist_txt ? `<span style="color: #64748b; font-size: 11px;">${{p.bp_dist_txt}}</span><br>` : '';
+
         const popupContent = `
           <div style="font-family: sans-serif; font-size: 13px;">
             <strong style="color: #0f172a;">#${{p.rank}} · Score ${{p.score}}</strong><br>
             <b>${{p.direccion}}</b><br>
             <span>${{p.costo}} · ${{p.m2}}</span><br>
+            ${{bpLine}}
             <div style="margin-top: 6px;">
               <a href="${{p.url}}" target="_blank" style="color: #0284c7; font-weight: 600;">Zonaprop ↗</a> |
               <a href="${{p.contacto}}" target="_blank" style="color: #0284c7; font-weight: 600;">Fotos 🖼️</a>
@@ -431,6 +451,10 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
 </body>
 </html>
 """
+    # Igual que fotos.py, historial.py y el caché del geocodificador: el que
+    # escribe se asegura de que la carpeta exista, en vez de depender de que el
+    # que llama la haya creado antes.
+    carpeta.mkdir(parents=True, exist_ok=True)
     destino = carpeta / "resumen.html"
     destino.write_text(doc_html.strip(), encoding="utf-8")
     return destino
