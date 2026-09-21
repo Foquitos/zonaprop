@@ -1249,3 +1249,30 @@ def test_descartado_con_score_alto_queda_despues_de_vivo_con_score_bajo():
     assert ids_ordenados.index("vivo_bajo") < ids_ordenados.index("desc_alto")
 
 
+
+
+def test_dashboard_no_usa_los_tiles_de_voluntarios_de_osm(tmp_path):
+    """El mapa no puede pegarle directo a tile.openstreetmap.org.
+
+    Esos son los servidores de voluntarios de OSM y su política de uso no
+    permite que una app los consuma: devuelven un tile con "Access blocked /
+    App is not following the tile usage policy" y el mapa se ve empapelado con
+    ese cartel en vez del plano. Pasó de verdad, no es hipotético.
+
+    El patrón de subdominios {s} sobre ese host está además deprecado.
+    """
+    avisos = [{
+        "id": "1", "score": 70, "descartado": False,
+        "latitude": -34.54746, "longitude": -58.497911,
+        "direccion": "Laprida al 4500", "barrio": "Villa Martelli",
+        "precio": 700000, "moneda": "ARS", "costo_mensual": 800000,
+        "m2_total": 50, "ambientes": 2,
+    }]
+    destino = dashboard.generar_dashboard_html("run-test", avisos, tmp_path)
+    doc = destino.read_text(encoding="utf-8")
+
+    assert "tile.openstreetmap.org" not in doc
+    # El mapa tiene que seguir existiendo y con su capa de tiles.
+    assert "L.tileLayer(" in doc
+    # La atribución a OSM sí va: los datos son de ellos, el render es de otro.
+    assert "openstreetmap.org/copyright" in doc

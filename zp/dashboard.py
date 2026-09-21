@@ -11,6 +11,30 @@ from pathlib import Path
 from zp import geocodificador
 from zp.comun import _plata
 
+# --------------------------------------------------------------------------- #
+# Tiles del mapa
+# --------------------------------------------------------------------------- #
+# NO usar https://{s}.tile.openstreetmap.org/... acá. Esos son los servidores de
+# voluntarios de OpenStreetMap y su política de uso no permite que una app les
+# pegue directo: devuelven un tile con "Access blocked / App is not following
+# the tile usage policy", que es lo que se ve en el mapa en vez del plano.
+# Encima el patrón de subdominios {s} (a./b./c.) está deprecado y OSM pide
+# explícitamente dejar de usarlo.
+#
+# CARTO sirve tiles derivados de datos de OSM desde su propia CDN, pensada para
+# esto. La atribución tiene que nombrar a los dos: los datos son de OSM, el
+# render es de CARTO.
+#
+# Se puede cambiar por cualquier otro proveedor de tiles raster; sólo hay que
+# actualizar la atribución junto con la URL. Para tema claro: 'light_all'.
+# Otra alternativa sin API key es Esri (World_Street_Map).
+TILES_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+TILES_ATRIBUCION = (
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> '
+    'contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+)
+TILES_MAX_ZOOM = 20
+
 
 def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
     """Genera un archivo resumen.html con un dashboard visual responsivo y mapa interactivo."""
@@ -358,8 +382,9 @@ def generar_dashboard_html(run: str, avisos: list[dict], carpeta: Path) -> Path:
       const first = points[0];
       map = L.map('map').setView([first.lat, first.lng], 14);
 
-      L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      L.tileLayer('{TILES_URL}', {{
+        attribution: '{TILES_ATRIBUCION}',
+        maxZoom: {TILES_MAX_ZOOM}
       }}).addTo(map);
 
       const bounds = [];
