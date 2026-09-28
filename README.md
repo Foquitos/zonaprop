@@ -1,10 +1,8 @@
 # Scraper & Análisis Forense de Alquileres de Zonaprop
 
-[![Developed with Vibecoding](https://img.shields.io/badge/Developed%20with-Vibecoding%20%E2%9C%A8-8a2be2?style=for-the-badge)](https://en.wikipedia.org/wiki/Vibe_coding)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python)](https://www.python.org/)
 [![Playwright](https://img.shields.io/badge/Playwright-Automated-green?style=for-the-badge&logo=playwright)](https://playwright.dev/)
 
-> ⚡ **Proyecto desarrollado con metodología Vibecoding**: Construido de manera ágil, modular e iterativa en colaboración con Inteligencia Artificial, integrando scraping resiliente, heurísticas financieras, visión computacional con LLMs y dashboards interactivos.
 
 Dos etapas: el scraper corre en tu máquina y deja los datos en `salida/<run>/`;
 después se alimentan los LLMs (Claude / Gemini) o se visualiza en el dashboard para el análisis pericial, incluida la revisión de fotos.
@@ -295,12 +293,10 @@ cantar en la primera corrida en vez de dejarte con datos de otro lado.
 
 ---
 
-## 🤖 Metodología de Desarrollo: Vibecoding
+## Cómo está armado
 
-Este proyecto fue concebido y desarrollado bajo la filosofía **Vibecoding**: un proceso de ingeniería de software rápido, iterativo y altamente colaborativo guiado por Inteligencia Artificial / LLMs.
-
-### ¿Cómo se estructuró el Vibecoding en este proyecto?
-1. **Modelado y Arquitectura Híbrida**: La lógica pesada y determinística (scraping con Playwright, bypass y persistencia de Cloudflare, parsing de JSON embebido y cálculo de matriz financiera/scoring) corre en Python local.
-2. **Razonamiento Multimodal (Vision LLM)**: En vez de forzar reglas rígidas para evaluar la calidad estética y estructural, el sistema compila *hojas de contacto fotográficas* y un *dossier markdown estructurado* para que un LLM actúe como un perito arquitecto forense detectando vicios ocultos (humedad, falta de luz, lente gran angular engañoso).
-3. **Iteración Guiada por Feedback Empírico**: Cada feature (manejo de desafíos anti-bot, inferencia de expensas, deduplicación de avisos entre inmobiliarias, preservación de fotos de fachadas) nació de corridas reales y ajustes conversacionales inmediatos con el asistente IA.
-
+1. **Lo determinístico corre en Python local:** el scraping con Playwright, la sesión frente a la protección
+   anti-bot, el parseo del JSON embebido en la página y el cálculo de la matriz financiera y el puntaje.
+2. **Lo que no se resuelve con reglas lo razona un LLM con visión:** el sistema arma *hojas de contacto* con las
+   fotos y un *dossier* en markdown, para que el modelo actúe como perito y detecte vicios ocultos (humedad, falta
+   de luz, lentes gran angular que agrandan los ambientes).
