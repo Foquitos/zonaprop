@@ -182,7 +182,9 @@ def parsear_listado(html: str) -> list[Aviso]:
 # Frases con las que un aviso declara que no hay expensas. Solo con una de estas
 # el 0 es un 0 de verdad; si no, el dato falta y hay que estimarlo.
 _RE_SIN_EXPENSAS = re.compile(
-    r"sin\s+expensas|no\s+paga\s+expensas|expensas\s*:?\s*\$?\s*0(?!\d)|"
+    # "Sin expensas extraordinarias" dice que no hay cuotas extra, no que no
+    # haya expensas: ponía en $0 avisos que en la tarjeta declaraban un monto.
+    r"sin\s+expensas(?!\s+extraordinarias)|no\s+paga\s+expensas|expensas\s*:?\s*\$?\s*0(?!\d)|"
     r"expensas\s+incluidas|no\s+posee\s+expensas|libre\s+de\s+expensas|"
     r"no\s+tiene\s+expensas|sin\s+gastos\s+comunes|no\s+abona\s+expensas|"
     r"sin\s+exp\b",
@@ -340,10 +342,11 @@ def parsear_detalle(html: str) -> dict:
 
     desc = doc.css_first("#longDescription") or doc.css_first('[class*="description"]')
     if desc:
+        # El "sin expensas" de la descripción completa NO se aplica acá: el
+        # detalle no sabe si la tarjeta declaraba un monto, y pisarlo con 0 se
+        # comía expensas reales. `scoring.puntuar` ya relee la descripción
+        # completa para los avisos que no informan expensas.
         datos["descripcion_completa"] = desc.text(separator="\n", strip=True)
-        if _RE_SIN_EXPENSAS.search(datos["descripcion_completa"]):
-            datos["expensas"] = 0.0
-            datos["expensas_informadas"] = True
 
     # Amenities / características generales del edificio, si están en el DOM.
     amen = [n.text(strip=True) for n in doc.css('[class*="general-features"] li')]

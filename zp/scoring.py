@@ -16,6 +16,8 @@ Todos los pesos están en PESOS y son fáciles de tocar.
 from __future__ import annotations
 
 import datetime
+import difflib
+import math
 import re
 import statistics
 import unicodedata
@@ -36,7 +38,8 @@ PESOS = {
 
 BONOS = [
     (r"\bmuy luminos", 6, "muy luminoso"),
-    (r"\bluminos", 4, "luminoso"),
+    # "poco luminoso" y "no muy luminoso" sumaban +4 como si dijeran lo contrario.
+    (r"(?<!poco )(?<!no muy )(?<!no es )\bluminos", 4, "luminoso"),
     (r"orientaci[oó]n (norte|n\b|noreste|noroeste|ne\b|no\b)", 5, "orientación norte"),
     (r"\bal frente\b|\bdisposici[oó]n frente\b|\bfrente despejado\b", 3, "al frente"),
     (r"\bvista abierta|vista despejada|vista al r[ií]o", 4, "vista abierta"),
@@ -48,12 +51,14 @@ BONOS = [
     (r"due[nñ]o\s+directo|sin\s+comisi[oó]n|sin\s+honorarios|trato\s+directo|propietario\s+directo", 5, "dueño directo (sin comisión)"),
     (r"doble vidrio|dvh\b|hermetic", 3, "doble vidrio (aislación)"),
     (r"losa radiante|calefacci[oó]n central|calefacci[oó]n por radiadores", 3, "buena calefacción"),
-    (r"(?<!sin )(?<!no posee )(?<!no tiene )(\bbalc[oó]n|\bterraza\b|\bpatio\b)", 3, "espacio exterior"),
+    # Un balcón francés es una baranda frente a una puerta-ventana: no se sale.
+    (r"(?<!sin )(?<!no posee )(?<!no tiene )(\bbalc[oó]n(?! franc[eé]s)|\bterraza\b|\bpatio\b)", 3, "espacio exterior"),
     (r"lavadero|espacio para lavarropas|conexi[oó]n para el lavarropas", 2, "lugar de lavarropas"),
-    (r"(?<!no )(apto mascota|acepta mascota|apto perro|acepta 1 mascota)", 3, "acepta mascotas"),
+    # Mascotas no está acá: sale de politica_mascotas(), la misma función que
+    # llena la ficha. Antes eran dos regex distintas que se contradecían.
     (r"placard", 1, "placards"),
     (r"aire acondicionado|split|fr[ií]o ?/? ?calor", 2, "aire acondicionado"),
-    (r"cochera", 2, "cochera"),
+    (r"(?<!sin )(?<!no tiene )(?<!no posee )(?<!no incluye )\bcochera", 2, "cochera"),
     (r"seguridad 24|vigilancia 24", 1, "seguridad 24h"),
 ]
 
@@ -62,11 +67,13 @@ PENAS = [
     (r"a reciclar|para refaccionar|a refaccionar|apto reforma|necesita refacci", -18, "a refaccionar"),
     (r"\bhumedad|humedades|con moho|filtraci[oó]n|filtraciones|goteras?", -20, "MENCIONA HUMEDAD"),
     (r"contrafrente", -5, "contrafrente"),
-    (r"\binterno\b|pulm[oó]n de manzana|al pulm[oó]n", -7, "unidad interna"),
+    # "Vista al pulmón de manzana" es verde y silencio, no un aire luz; y en
+    # "patio interno propio" lo interno es el patio, no la unidad.
+    (r"(?<!patio )\binterno\b|(?<!vista )\bal pulm[oó]n\b(?! de manzana)|\bda a(?:l)? pulm[oó]n\b(?! de manzana)", -7, "unidad interna"),
     (r"planta baja|\bpb\b(?! con salida)", -5, "planta baja (más riesgo de humedad)"),
     (r"subsuelo|semisubsuelo|entrepiso interno", -12, "subsuelo"),
     (r"sin ascensor|por escalera", -4, "sin ascensor"),
-    (r"no acepta mascota|sin excepci[oó]n.{0,20}(perros|gatos)|no mascota", -5, "no acepta mascotas"),
+    (r"poco luminos|no muy luminos|\boscuro\b", -4, "poco luminoso"),
     (r"no apto profesional", -1, "no apto profesional"),
     (r"sin balc[oó]n|no posee balc[oó]n|no tiene balc[oó]n", -4, "sin balcón"),
     (r"orientaci[oó]n (sur|s\b|sureste|suroeste|se\b|so\b)", -3, "orientación sur"),
@@ -96,17 +103,102 @@ def _norm(t: str) -> str:
     return "".join(c for c in t if not unicodedata.combining(c)).lower()
 
 
+# --------------------------------------------------------------------------- #
+# "Planta baja" y "subsuelo": ¿hablan de la unidad o de la cochera?
+# --------------------------------------------------------------------------- #
+# Las 49 menciones de "subsuelo" en las corridas reales eran todas del estilo
+# "cochera doble en primer subsuelo", y la mitad de las de "planta baja" eran
+# "hall de acceso en planta baja" o "edificio de PB + 8 pisos". Penalizaban
+# -12 y -5 a departamentos en un sexto piso.
+#
+# La regla: se mira la frase donde aparece (cortando en el punto o la coma más
+# cercanos). Si en esa frase, antes de la mención, se nombra un espacio común,
+# o después viene "+ 8 pisos", no es la unidad.
+
+_ETIQUETAS_CONTEXTUALES = {"planta baja (más riesgo de humedad)", "subsuelo", "planta baja"}
+
+_RE_ESPACIO_COMUN = re.compile(
+    r"cochera|baulera|\bsum\b|s\.u\.m|\bhall\b|amenit|laundry|lavadero comun|"
+    r"gimnasio|\bgym\b|pileta|piscina|solarium|bicicletero|local(?:es)? comercial|"
+    r"porter[ií]a|recepci[oó]n|estacionamiento|guardacoche|deposito|dep[oó]sitos"
+)
+_RE_EDIFICIO_DE_PISOS = re.compile(r"^\s*(?:\+|y|mas|m[aá]s)\s*\d+\s*(?:pisos|niveles)?")
+
+
+def _menciona_unidad(t: str, patron: str) -> bool:
+    """True si alguna mención de `patron` en `t` (ya normalizado) habla de la unidad."""
+    for m in re.finditer(patron, t):
+        antes = t[max(0, m.start() - 45):m.start()]
+        antes = re.split(r"[.;,\n:]", antes)[-1]
+        despues = re.split(r"[.;,\n]", t[m.end():m.end() + 30])[0]
+        if _RE_ESPACIO_COMUN.search(antes) or _RE_ESPACIO_COMUN.search(despues):
+            continue
+        if _RE_EDIFICIO_DE_PISOS.search(despues):
+            continue
+        return True
+    return False
+
+
+def _hay_señal(t: str, patron: str, etiqueta: str) -> bool:
+    patron = _norm(patron)
+    if etiqueta in _ETIQUETAS_CONTEXTUALES:
+        return _menciona_unidad(t, patron)
+    return bool(re.search(patron, t))
+
+
+# --------------------------------------------------------------------------- #
+# Mascotas: una sola fuente
+# --------------------------------------------------------------------------- #
+
+_RE_NO_MASCOTAS = re.compile(
+    r"no\s+(?:se\s+)?(?:aceptan?|admiten?|permiten?)\s+(?:mascotas?|animales|perros|gatos)|"
+    r"no\s+(?:es\s+)?apt[oa]\s+(?:para\s+)?(?:mascotas?|animales|perros)|"
+    r"sin\s+mascotas|prohibid[oa]s?\s+(?:las\s+)?mascotas|\bno\s+mascotas?\b|"
+    r"mascotas?\s*:\s*no\b|mascotas?\s+no\s+(?:permitidas|aceptadas)|"
+    r"sin\s+excepci[oó]n.{0,20}(?:perros|gatos)"
+)
+_RE_MASCOTA_CHICA = re.compile(
+    r"(?:solo|acepta)\s+mascota\s+peque[nñ]a|acepta\s+1\s+mascota|solo\s+gatos?|no\s+perros?|"
+    r"mascotas?\s+peque[nñ]as?"
+)
+_RE_SI_MASCOTAS = re.compile(
+    r"apt[oa]\s+(?:para\s+)?mascotas?|acepta(?:n)?\s+mascotas?|pet\s*friendly|apto\s+perros?|"
+    r"se\s+aceptan\s+mascotas|mascotas?\s+bienvenidas|mascotas?\s*:\s*s[ií]\b"
+)
+
+
+def politica_mascotas(texto: str) -> str:
+    """'No acepta mascotas' | 'Solo gatos o mascota pequeña' | 'Acepta mascotas' | 'No especifica'.
+
+    La negación se mira primero: "no apto mascotas" contiene "apto mascotas", y
+    la versión vieja de parsear_contrato lo marcaba como que las aceptaba.
+    """
+    t = _norm(texto)
+    if _RE_NO_MASCOTAS.search(t):
+        return "No acepta mascotas"
+    if _RE_MASCOTA_CHICA.search(t):
+        return "Solo gatos o mascota pequeña"
+    if _RE_SI_MASCOTAS.search(t):
+        return "Acepta mascotas"
+    return "No especifica"
+
+
+_PUNTOS_MASCOTAS = {
+    "No acepta mascotas": (-5, "no acepta mascotas"),
+    "Solo gatos o mascota pequeña": (1, "acepta mascota pequeña"),
+    "Acepta mascotas": (3, "acepta mascotas"),
+}
+
+
 def extraer_piso(texto: str) -> int | None:
     """Extrae el número de piso si se menciona en el texto."""
     t = _norm(texto)
     m = re.search(r"(?:piso\s+(\d{1,2})|(\d{1,2})\s*(?:ro|do|er|to|mo|vo|no|º|°|\.º|\.ª)?\s+piso)", t)
     if m:
         val = m.group(1) or m.group(2)
-        try:
+        if val and val.isdigit():
             return int(val)
-        except ValueError:
-            pass
-    if re.search(r"\bplanta baja\b|\bpb\b", t):
+    if _menciona_unidad(t, r"\bplanta baja\b|\bpb\b"):
         return 0
     palabras = {
         "primer": 1, "segundo": 2, "tercer": 3, "cuarto": 4, "quinto": 5,
@@ -134,13 +226,27 @@ def señales(texto: str, aviso: dict | None = None) -> tuple[int, list[str], lis
     t = _norm(texto)
     pts, pos, neg = 0, [], []
     for patron, valor, etiqueta in BONOS:
-        if re.search(_norm(patron), t):
+        if _hay_señal(t, patron, etiqueta):
             pts += valor
             pos.append(etiqueta)
     for patron, valor, etiqueta in PENAS:
-        if re.search(_norm(patron), t):
+        if _hay_señal(t, patron, etiqueta):
             pts += valor
             neg.append(etiqueta)
+
+    # "Muy luminoso" ya cobró sus 6 puntos: no se le suman otros 4 por contener
+    # "luminoso". Pasaba en los 241 avisos que lo decían, casi todo el top.
+    if "muy luminoso" in pos and "luminoso" in pos:
+        pos.remove("luminoso")
+        pts -= 4
+    if "poco luminoso" in neg and "luminoso" in pos:
+        pos.remove("luminoso")
+        pts -= 4
+
+    pts_masc, etiqueta_masc = _PUNTOS_MASCOTAS.get(politica_mascotas(texto), (0, None))
+    if etiqueta_masc:
+        pts += pts_masc
+        (pos if pts_masc > 0 else neg).append(etiqueta_masc)
 
     # 0. Filtrar falso 'a estrenar' por artefactos/cocina
     if "a estrenar" in pos:
@@ -187,6 +293,12 @@ def señales(texto: str, aviso: dict | None = None) -> tuple[int, list[str], lis
             pts += 5  # anula la penalización de -5
             desc_piso = f"en {piso}.º piso" if (piso is not None and piso >= 1) else "con vista abierta"
             pos.append(f"contrafrente {desc_piso} (tranquilo y luminoso)")
+
+    # 5. Lo mismo para "interno": "9.º piso, interno pero muy luminoso, con
+    # vista al pulmón de manzana" no es un departamento oscuro.
+    if "unidad interna" in neg and ((piso is not None and piso >= 4) or vista_libre):
+        neg.remove("unidad interna")
+        pts += 7
 
     return pts, pos, neg
 
@@ -271,7 +383,7 @@ def riesgo_humedad(aviso: dict, texto: str) -> tuple[int, list[str]]:
     vista_libre = tiene_vista_abierta(texto) or "muy luminoso" in t
 
     for patron, valor, etiqueta in RIESGO_HUMEDAD:
-        if re.search(_norm(patron), t):
+        if _hay_señal(t, patron, etiqueta):
             # Si es contrafrente pero en piso alto (>= 4) o con vista abierta, no suma riesgo de humedad
             if etiqueta == "poco sol / poca ventilación" and ((piso is not None and piso >= 4) or vista_libre):
                 continue
@@ -485,49 +597,118 @@ def normalizar_direccion(dir_str: str) -> str:
     return calle
 
 
+def _misma_propiedad(a: dict, b: dict) -> bool:
+    """¿Dos avisos de la misma cuadra y ambientes son la misma unidad?
+
+    La calle + centena + ambientes sola juntaba propiedades distintas: en
+    Caballito, 26 de 32 grupos tenían m² todos diferentes (Gaona 2000 de
+    123 m² con Gaona 2043 de 69 m²). Se exige además que coincida la
+    superficie (±3 m²) o, si falta, que el precio esté dentro del 10%.
+    """
+    m2a, m2b = a.get("m2_total"), b.get("m2_total")
+    if m2a and m2b:
+        return abs(float(m2a) - float(m2b)) <= 3
+    ca, cb = a.get("costo_mensual"), b.get("costo_mensual")
+    if ca and cb:
+        return abs(ca - cb) / max(ca, cb) <= 0.10
+    return False
+
+
+def _partir_direccion(dir_str: str) -> tuple[str, str]:
+    """'laprida_4500' -> ('laprida', '4500'); sin altura -> (calle, '')."""
+    norm = normalizar_direccion(dir_str)
+    calle, _, centena = norm.rpartition("_")
+    return (calle, centena) if calle else (norm, "")
+
+
+def _misma_calle(a: str, b: str) -> bool:
+    """Tolera un error de tipeo entre inmobiliarias ("Tamborini" / "Temborini").
+
+    Se probó también juntar por precio + m² + ambientes + barrio sin mirar la
+    calle, y en Villa Urquiza agrupaba Rivera 3968 con Olazábal 5142: en un
+    barrio grande sobran 2 ambientes de 45 m² a $600.000.
+    """
+    if a == b:
+        return True
+    return len(a) >= 5 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.85
+
+
 def identificar_duplicados(avisos: list[dict]):
-    """Agrupa avisos por dirección y ambientes, identificando duplicados y diferencias de precio."""
-    grupos: dict[tuple, list[dict]] = {}
+    """Agrupa las publicaciones de una misma propiedad y anota la diferencia de precio."""
+    padre = {id(a): id(a) for a in avisos}
+
+    def raiz(x):
+        while padre[x] != x:
+            padre[x] = padre[padre[x]]
+            x = padre[x]
+        return x
+
+    def unir(a, b):
+        padre[raiz(id(a))] = raiz(id(b))
+
+    # Se agrupa por centena y ambientes, y dentro del grupo se compara la calle
+    # con tolerancia a errores de tipeo.
+    por_altura: dict[tuple, list[tuple[str, dict]]] = {}
     for a in avisos:
-        d = a.get("direccion") or ""
-        if not d:
+        for k in ("es_duplicado", "duplicados_ids", "disparidad_precio",
+                  "mejor_precio_duplicado", "nota_negociacion"):
+            a.pop(k, None)
+        if not a.get("direccion"):
             continue
-        k = (normalizar_direccion(d), a.get("ambientes"))
-        if k[0]:
-            grupos.setdefault(k, []).append(a)
+        calle, centena = _partir_direccion(a["direccion"])
+        # Sin altura ("Parque Chacabuco" a secas) no hay dirección con qué
+        # comparar: dos avisos así no son la misma propiedad por eso.
+        if calle and centena:
+            por_altura.setdefault((centena, a.get("ambientes")), []).append((calle, a))
 
-    for k, grupo in grupos.items():
-        if len(grupo) > 1:
-            costos = [a["costo_mensual"] for a in grupo if a.get("costo_mensual") is not None]
-            if not costos:
+    for grupo in por_altura.values():
+        for i, (calle_a, a) in enumerate(grupo):
+            for calle_b, b in grupo[i + 1:]:
+                if _misma_calle(calle_a, calle_b) and _misma_propiedad(a, b):
+                    unir(a, b)
+
+    grupos: dict[int, list[dict]] = {}
+    for a in avisos:
+        grupos.setdefault(raiz(id(a)), []).append(a)
+
+    for grupo in grupos.values():
+        if len(grupo) < 2:
+            continue
+        costos = [a["costo_mensual"] for a in grupo if a.get("costo_mensual") is not None]
+        if not costos:
+            continue
+        min_costo, max_costo = min(costos), max(costos)
+
+        for a in grupo:
+            a["es_duplicado"] = True
+            a["duplicados_ids"] = [o["id"] for o in grupo if o["id"] != a["id"]]
+            a["disparidad_precio"] = max_costo - min_costo
+            a["mejor_precio_duplicado"] = min_costo
+
+            costo = a.get("costo_mensual")
+            if costo is None or max_costo == min_costo:
                 continue
-            min_costo = min(costos)
-            max_costo = max(costos)
-            disparidad = max_costo - min_costo
-
-            for a in grupo:
-                a["es_duplicado"] = True
-                a["duplicados_ids"] = [o["id"] for o in grupo if o["id"] != a["id"]]
-                a["disparidad_precio"] = disparidad
-                a["mejor_precio_duplicado"] = min_costo
-
-                if disparidad > 0 and a.get("costo_mensual") is not None:
-                    if a["costo_mensual"] == min_costo:
-                        a.setdefault("motivos_a_favor", []).append(
-                            f"mejor precio publicado (ahorro de {_plata(disparidad)} vs otra publicación de la misma propiedad)"
-                        )
-                        a["nota_negociacion"] = (
-                            f"Publicado también a {_plata(max_costo)} por otra inmobiliaria "
-                            f"(ahorro de {_plata(disparidad)} a tu favor)"
-                        )
-                    else:
-                        a.setdefault("motivos_en_contra", []).append(
-                            f"publicado más barato por otra inmobiliaria ({_plata(min_costo)} vs {_plata(a['costo_mensual'])}; diferencia de {_plata(disparidad)})"
-                        )
-                        a["nota_negociacion"] = (
-                            f"Publicado a {_plata(min_costo)} por otra inmobiliaria "
-                            f"(diferencia de {_plata(disparidad)} para negociar)"
-                        )
+            if costo == min_costo:
+                ahorro = max_costo - min_costo
+                a.setdefault("motivos_a_favor", []).append(
+                    f"mejor precio publicado (ahorro de {_plata(ahorro)} vs otra publicación de la misma propiedad)"
+                )
+                a["nota_negociacion"] = (
+                    f"Publicado también a {_plata(max_costo)} por otra inmobiliaria "
+                    f"(ahorro de {_plata(ahorro)} a tu favor)"
+                )
+            else:
+                # La diferencia de ESTE aviso contra el más barato, no la del
+                # grupo entero: antes decía "$800.000 vs $815.000; diferencia
+                # de $190.000".
+                diferencia = costo - min_costo
+                a.setdefault("motivos_en_contra", []).append(
+                    f"publicado más barato por otra inmobiliaria ({_plata(min_costo)} vs {_plata(costo)}; diferencia de {_plata(diferencia)})"
+                )
+                a["nota_negociacion"] = (
+                    f"Publicado a {_plata(min_costo)} por otra inmobiliaria "
+                    f"(diferencia de {_plata(diferencia)} para negociar)"
+                )
 
 
 # --------------------------------------------------------------------------- #
@@ -637,14 +818,7 @@ def parsear_contrato(texto: str) -> dict:
         garantias.append("Consultar tipo de garantía")
 
     # 2. Mascotas
-    if re.search(r"no\s+(?:se\s+)?(?:aceptan?|admiten?|permite)\s+mascotas|sin\s+mascotas|prohibido\s+mascotas|\bno\s+mascotas?\b", t):
-        mascotas = "No acepta mascotas"
-    elif re.search(r"(?:solo|acepta)\s+mascota\s+peque[nñ]a|acepta\s+1\s+mascota|solo\s+gato|no\s+perro", t):
-        mascotas = "Solo gatos o mascota pequeña"
-    elif re.search(r"apto\s+mascotas?|acepta\s+mascotas?|pet\s+friendly", t):
-        mascotas = "Acepta mascotas"
-    else:
-        mascotas = "No especifica"
+    mascotas = politica_mascotas(texto)
 
     # 3. Ajuste (frecuencia e índice)
     frecuencia = "No especifica"
@@ -808,33 +982,25 @@ def calcular_caja_inicial(aviso: dict, dolar: float = 1450.0) -> tuple[float, st
     deposito = None
     dep_label = None
 
-    if m_usd:
-        try:
-            num_str = m_usd.group(1).replace(".", "").strip()
-            if num_str:
-                num_usd = float(num_str)
-                deposito = num_usd * dolar
-                dep_label = f"Depósito USD {num_usd:,.0f}".replace(",", ".")
-        except Exception:
-            pass
+    def _monto(texto_num: str) -> float | None:
+        # Las regex sólo capturan dígitos y puntos de miles, pero un "." suelto
+        # al final de una oración ("USD 900.") también entra: eso deja "" o
+        # algo que float() rechaza, y se trata como "no se pudo leer".
+        crudo = texto_num.replace(".", "").strip()
+        return float(crudo) if crudo.isdigit() else None
 
-    if deposito is None and m_ars:
-        try:
-            num_str = m_ars.group(1).replace(".", "").strip()
-            if num_str:
-                num_ars = float(num_str)
-                deposito = num_ars
-                dep_label = f"Depósito {_plata(deposito)}"
-        except Exception:
-            pass
+    if m_usd and (num_usd := _monto(m_usd.group(1))) is not None:
+        deposito = num_usd * dolar
+        dep_label = f"Depósito USD {num_usd:,.0f}".replace(",", ".")
+
+    if deposito is None and m_ars and (num_ars := _monto(m_ars.group(1))) is not None:
+        deposito = num_ars
+        dep_label = f"Depósito {_plata(deposito)}"
 
     if deposito is None and m_meses:
-        try:
-            cant_meses = int(m_meses.group(1))
-            deposito = cant_meses * alquiler
-            dep_label = f"Depósito ({cant_meses} meses)"
-        except Exception:
-            pass
+        cant_meses = int(m_meses.group(1))
+        deposito = cant_meses * alquiler
+        dep_label = f"Depósito ({cant_meses} meses)"
 
     if deposito is None:
         deposito = alquiler
@@ -937,6 +1103,10 @@ def detectar_alerta_gran_angular(aviso: dict, texto: str) -> str | None:
 
 def detectar_bajas_precio(avisos: list[dict], historial: dict | None = None):
     """Detecta si los avisos bajaron de precio respecto a un historial de versiones previas."""
+    for a in avisos:
+        for k in ("baja_precio", "precio_anterior", "ahorro_baja",
+                  "descuento_porcentaje", "nota_baja_precio"):
+            a.pop(k, None)
     if not historial:
         return
     for a in avisos:
@@ -945,6 +1115,10 @@ def detectar_bajas_precio(avisos: list[dict], historial: dict | None = None):
             continue
         p_prev = prev.get("precio")
         p_act = a.get("precio")
+        moneda_prev = (prev.get("moneda") or "").upper()
+        moneda_act = (a.get("moneda") or "ARS").upper()
+        if moneda_prev and moneda_prev != moneda_act:
+            continue  # $900.000 -> USD 650 no es una baja del 100%
         if p_prev and p_act and p_prev > p_act:
             diff = p_prev - p_act
             pct = round((diff / p_prev) * 100)
@@ -955,9 +1129,6 @@ def detectar_bajas_precio(avisos: list[dict], historial: dict | None = None):
                 a["descuento_porcentaje"] = pct
                 a["nota_baja_precio"] = (
                     f"Bajó un {pct}% ({_plata(p_prev)} -> {_plata(p_act)}; ahorro de {_plata(diff)})"
-                )
-                a.setdefault("motivos_a_favor", []).insert(
-                    0, f"📉 BAJA DE PRECIO: Bajó un {pct}% ({_plata(p_prev)} -> {_plata(p_act)})"
                 )
 
 
@@ -1035,9 +1206,50 @@ def _detectar_region(aviso: dict, region_defecto: str | None = None) -> str | No
     return None
 
 
+def valor_por_precio(rel: float) -> float:
+    """Cuánto vale el $/m² de un aviso contra la mediana: 0 a 1, 0.5 = en la mediana.
+
+    `rel` es mediana / $/m² del aviso (2 = paga la mitad que el resto).
+
+    La versión anterior era una recta con techo: llegaba a 1 apenas el $/m²
+    estaba un 31% por debajo de la mediana. Entre 3 y 8 avisos del top 10 de
+    cada corrida empataban en 1, y el orden entre ellos lo decidían los
+    adjetivos del texto. Además premiaba sin techo a los PH con terraza
+    contada como m². Con una curva en escala logarítmica, ir de 1.4x a 2x
+    todavía suma, pero cada vez menos: ser el doble de barato por m² casi
+    siempre esconde un dato mal cargado o una terraza.
+    """
+    if rel <= 0:
+        return 0.0
+    return 0.5 + 0.5 * math.tanh(2.0 * math.log(rel))
+
+
+def puntos_presupuesto(costo: float | None, presupuesto: float | None) -> tuple[int, str | None]:
+    """El costo absoluto también importa, no sólo el $/m².
+
+    Un PH enorme puede tener un $/m² buenísimo y costar el doble de lo que se
+    quiere pagar. El tope duro sigue siendo el filtro de descarte; esto premia,
+    dentro del presupuesto, lo que deja más margen.
+    """
+    if not (costo and presupuesto):
+        return 0, None
+    uso = costo / presupuesto
+    if uso <= 0.75:
+        return 4, f"deja margen en el presupuesto ({uso:.0%} del tope)"
+    if uso <= 0.90:
+        return 2, f"cómodo dentro del presupuesto ({uso:.0%} del tope)"
+    return 0, None
+
+
 def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float = 1450.0,
-            historial: dict | None = None, region: str | None = None) -> list[dict]:
+            historial: dict | None = None, region: str | None = None,
+            ambientes_buscados: list[int] | None = None) -> list[dict]:
     """Agrega score y columnas explicativas a cada aviso. Devuelve la lista ordenada."""
+    from zp import perfil
+
+    # Antes del cálculo del score: la baja de precio tiene que poder sumar.
+    # Antes se detectaba al final y sólo agregaba un texto.
+    detectar_bajas_precio(avisos, historial)
     if not region:
         regiones_detectadas = [
             _detectar_region(a) for a in avisos if _detectar_region(a)
@@ -1207,8 +1419,11 @@ def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float =
             costo_ref = a.get("costo_m2_ranking") or a.get("costo_m2")
             mediana = a.get("mediana_usada")
             if costo_ref and mediana:
-                rel = mediana / costo_ref
-                valor = max(0.0, min(1.0, (rel - 0.55) / 0.9))
+                valor = valor_por_precio(mediana / costo_ref)
+                # Un PH o casa cuyo $/m² se calculó con terraza adentro no
+                # puede llevarse el valor máximo por eso.
+                if not a.get("m2_confiable", True):
+                    valor = min(valor, 0.75)
             else:
                 valor = 0.35
         a["valor_vs_mercado"] = round(valor, 3)
@@ -1300,6 +1515,44 @@ def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float =
         a["deposito_monto"] = contrato["deposito_monto"]
         a["plazo_contrato"] = contrato["plazo_contrato"]
         a["costos_adicionales"] = contrato["costos_adicionales"]
+
+        # --- compatibilidad con la garantía que se tiene ---
+        compatible = perfil.acepta_garantia(contrato["garantias_aceptadas"])
+        a["garantia_compatible"] = compatible
+        if compatible is True:
+            if any("Propietaria" in g for g in contrato["garantias_aceptadas"]):
+                pts += 2
+                pos.append("acepta garantía propietaria (la tenés)")
+        elif compatible is False:
+            pts -= 6
+            neg.append("pide una garantía que no tenés")
+        if contrato["garantias_aceptadas"] == ["FINAER / Seguro de Caución"]:
+            # Sólo caución: se puede, pero es un costo extra de entrada.
+            pts -= 2
+            neg.append("sólo seguro de caución (costo extra al firmar)")
+
+        # --- ajuste conocido ---
+        frec = contrato["ajuste_frecuencia"]
+        if frec.startswith(("Semestral", "Anual")):
+            pts += 2
+            pos.append(f"ajuste {frec.split(' ')[0].lower()}")
+
+        # --- presupuesto y ambientes buscados ---
+        pts_pres, motivo_pres = puntos_presupuesto(a.get("costo_mensual"), presupuesto)
+        if pts_pres:
+            pts += pts_pres
+            pos.append(motivo_pres)
+        amb_aviso = _entero(a.get("ambientes"))
+        if ambientes_buscados and amb_aviso and amb_aviso not in ambientes_buscados:
+            pts -= 8
+            rango = "-".join(str(x) for x in sorted(ambientes_buscados))
+            neg.append(f"{amb_aviso} ambientes (buscaste {rango})")
+
+        # --- baja de precio contra la búsqueda anterior ---
+        if a.get("baja_precio"):
+            pts += 3
+            pos.insert(0, f"📉 BAJA DE PRECIO: Bajó un {a['descuento_porcentaje']}% "
+                          f"({_plata(a['precio_anterior'])} -> {_plata(a.get('precio'))})")
 
         # --- días en mercado ---
         dias = a.get("dias_publicado")
@@ -1396,9 +1649,6 @@ def puntuar(avisos: list[dict], presupuesto: float | None = None, dolar: float =
 
     # 3) Identificar duplicados y disparidades de precios para negociación
     identificar_duplicados(avisos)
-
-    # 4) Detectar bajas de precio contra historial previo si existe
-    detectar_bajas_precio(avisos, historial)
 
     # Los descartados quedan SIEMPRE después de todos los vivos (False < True).
     # Dentro de cada grupo, ordenados por score descendente (-score).
