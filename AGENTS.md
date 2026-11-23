@@ -1,7 +1,8 @@
 # Zonaprop · Auditor Forense de Alquileres
 
-Scraper de Zonaprop (Playwright) + scoring + generación de dossier/dashboard.
-Pipeline: `buscar` → `rankear` → `fotos` → `dossier`.
+Scraper de Zonaprop (Playwright) + scoring + auditoría de fotos con la API de
+Claude + generación de dossier/dashboard.
+Pipeline: `buscar` → `rankear` → `fotos` → `dossier` → `auditar`.
 
 ## Convenciones NO negociables
 
@@ -9,19 +10,29 @@ Pipeline: `buscar` → `rankear` → `fotos` → `dossier`.
   Los nombres de funciones y variables también (`puntuar`, `avisos`, `carpeta`).
 - Python 3.10+, `from __future__ import annotations` al tope de cada módulo.
 - Sin dependencias nuevas salvo que se pidan explícitamente. Las actuales:
-  playwright, selectolax, requests, Pillow.
-- Playwright se importa SOLO dentro de funciones, nunca a nivel de módulo:
-  `rankear`, `dossier`, `zonas` y `menu` tienen que correr sin él instalado.
+  playwright, selectolax, requests, Pillow, anthropic.
+- Playwright y anthropic se importan SOLO dentro de funciones, nunca a nivel
+  de módulo: `rankear`, `dossier`, `zonas` y `menu` tienen que correr sin ellos
+  instalados.
+- Los tests nunca llaman a la API de Claude: usan un cliente falso (ver
+  `tests/test_mejoras.py`). Cada llamada real gasta créditos del usuario.
 - Los archivos de `salida/` son datos reales del usuario: NO los borres ni los
-  regeneres. Podés leerlos.
-- Tests: `python -m pytest tests/ -q`. Hoy pasan 71. No podés bajar ese número.
+  regeneres. Podés leerlos. `salida/seguimiento.json` y `auditoria.json`
+  (favoritos, descartes, veredictos pagados) son lo más delicado.
+- Tests: `python -m pytest tests/ -q`. Hoy pasan 163. No podés bajar ese número.
   El fixture (`tests/fixture_listado.py`) es una captura real del sitio; no lo
   edites para que un test pase.
 
 ## Estructura
 
 ```
-zp.py                 CLI: buscar, rankear, fotos, dossier, diff, zonas, menu
+zp.py                 CLI: buscar, rankear, fotos, auditar, dossier, diff, seguir, tablero, zonas, menu
+zp/auditor.py         auditoría de fotos + texto con la API de Claude (Sonnet, y Opus de segunda)
+zp/corrida.py         parametros.json, detalles/<id>.json, puntuar_corrida (única entrada al scoring)
+zp/seguimiento.py     favoritos / visitas / descartes en salida/seguimiento.json
+zp/perfil.py          garantías de quien alquila (lo usan scoring, auditor y mensajes)
+zp/bloques.py         bloque YAML y descripción por aviso (dossier y auditor)
+zp/historial.py       precios y presencia por búsqueda, novedades
 zp/zonas.py           catálogo de zonas + validación del <h1>
 zp/urls.py            armado de URLs de Zonaprop
 zp/navegador.py       Playwright + detección de desafío Cloudflare

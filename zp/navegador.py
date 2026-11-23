@@ -131,6 +131,7 @@ def navegador(perfil: Path, headless: bool = False, lento: bool = True,
             ],
         )
         ctx, usado = None, None
+        errores = []
         for intento_canal in ([canal] if canal else []) + [None]:
             try:
                 if intento_canal:
@@ -139,11 +140,19 @@ def navegador(perfil: Path, headless: bool = False, lento: bool = True,
                     ctx = p.chromium.launch_persistent_context(**opciones)
                 usado = intento_canal or "chromium (el que trae Playwright)"
                 break
-            except Exception:
+            except Exception as e:
+                errores.append(f"{intento_canal or 'chromium'}: {str(e).splitlines()[0][:160]}")
                 continue
         if ctx is None:
+            detalle = "\n    ".join(errores)
+            # El caso más común no es que falte el navegador sino que el perfil
+            # esté tomado por otra corrida (el menú y la consola a la vez).
             raise RuntimeError(
-                "No pude abrir ningún navegador. Probá `playwright install chromium`."
+                "No pude abrir ningún navegador.\n"
+                f"    {detalle}\n"
+                "  Si dice que el perfil está en uso, cerrá la otra ventana de Chrome "
+                "que abrió el programa (u otra corrida en curso) y volvé a intentar.\n"
+                "  Si dice que falta el ejecutable: `playwright install chromium`."
             )
 
         ctx.add_init_script(
@@ -209,10 +218,15 @@ class _Sesion:
             self.pagina.goto("https://www.zonaprop.com.ar/",
                              wait_until="domcontentloaded", timeout=45000)
             self.pagina.wait_for_timeout(1200)
-            if self._hay_desafio():
-                self.resolver_desafio()
-        except Exception:
-            pass  # si la home falla, seguimos igual: no es crítico
+        except Exception as e:
+            # Si la home no carga se sigue igual: no es crítico, la primera
+            # página de resultados lo vuelve a intentar.
+            print(f"  (no cargó la home de Zonaprop: {type(e).__name__}; sigo igual)")
+            return
+        # El desafío NO se traga: si no se resuelve acá, iba a fallar igual en
+        # la primera página, pero con un mensaje más confuso.
+        if self._hay_desafio():
+            self.resolver_desafio()
 
     # ------------------------------------------------------------------ #
     def ir(self, url: str, espera_selector: str | None = None, intentos: int = 3) -> str:
@@ -235,8 +249,11 @@ class _Sesion:
                 if espera_selector:
                     try:
                         self.pagina.wait_for_selector(espera_selector, timeout=20000)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # Se devuelve el HTML igual y quien llama decide; pero
+                        # que quede dicho, porque una página sin tarjetas
+                        # después del desafío se parece mucho a "zona incorrecta".
+                        print(f"  (pasé la verificación pero la página no mostró avisos: {type(e).__name__})")
                 return self.pagina.content()
 
             if espera_selector:
