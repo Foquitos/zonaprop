@@ -2,11 +2,16 @@
 
 Crea un archivo PROMPT_LLM.md listo para copiar y pegar en Claude o Gemini junto
 al dossier.md y las hojas de contacto en contactos/.
+
+Desde que existe `zp.py auditar` esto es el plan B: sirve para usar un chat a
+mano cuando no hay créditos de API o se quiere conversar sobre un aviso.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+from zp import perfil
 
 
 def generar_prompt_diagnostico(run: str, top_avisos: list[dict], carpeta: Path) -> Path:
@@ -50,7 +55,7 @@ El RENABAP (Registro Nacional de Barrios Populares) es el registro oficial del E
 ## 🎯 TU ROL Y OBJETIVO
 Sos un **Perito Arquitecto y Auditor Forense Inmobiliario**. Tu tarea es inspeccionar de forma crítica y minuciosa los departamentos/PHs candidatos a alquiler, cruzando los **datos declarados en `dossier.md`** con la **evidencia visual de las hojas de contacto (`contactos/<id>.jpg`)**.
 
-El usuario busca una vivienda para alquilar por 2 años, cuenta con garante en CABA y PBA (y opción FINAER), y necesita:
+El usuario busca una vivienda para alquilar por 2 años, cuenta con {perfil.describir_garantias()}, y necesita:
 1. **Detectar vicios ocultos de humedad, estructurales o de instalaciones** antes de visitar.
 2. **Desarmar distorsiones espaciales** (fotos con lente gran angular vs m² cubiertos reales).
 3. **Evaluar la viabilidad económica y contractual** (caja inicial de entrada, ajuste, expensas reales).

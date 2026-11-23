@@ -13,6 +13,7 @@ contacto cuesta lo mismo que mirar 20 fotos sueltas, y cubre 250.
 from __future__ import annotations
 
 import io
+import json
 from pathlib import Path
 
 import requests
@@ -52,13 +53,44 @@ def muestrear(urls: list[str], maximo: int) -> tuple[list[str], set[int]]:
     return elegidas, set(range(marca_desde, len(elegidas) + 1))
 
 
+def _base_url(u: str) -> str:
+    return u.split("?")[0]
+
+
 def descargar(urls: list[str], destino: Path, maximo: int = 16) -> list[Path]:
+    """Baja las fotos elegidas como 01.jpg, 02.jpg... y devuelve las que quedaron.
+
+    El número del archivo ES el número de la foto en la hoja de contacto, y
+    queda fijo aunque alguna descarga falle: si se cae la 3, la hoja muestra
+    1, 2, 4, 5... en vez de renumerar desde la 3 en adelante. Antes se
+    numeraba por posición, y una sola foto rota corría todos los números: las
+    marcas naranjas, el "mirar sí o sí las 12-16" del dossier y los hallazgos
+    del auditor terminaban apuntando a otra foto.
+
+    `urls.json` guarda qué URL corresponde a cada número. Si la inmobiliaria
+    cambia la galería, el slot cuya URL cambió se vuelve a bajar en vez de
+    reusar la foto vieja del caché.
+    """
     destino.mkdir(parents=True, exist_ok=True)
     guardadas: list[Path] = []
     elegidas, _ = muestrear(urls, maximo)
+
+    indice_archivo = destino / "urls.json"
+    previas: dict[str, str] = {}
+    if indice_archivo.exists():
+        try:
+            previas = json.loads(indice_archivo.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"    ! no pude leer {indice_archivo} ({e}); vuelvo a bajar todas las fotos")
+            previas = {}
+    sin_indice = not indice_archivo.exists()
+
     for i, u in enumerate(elegidas, start=1):
         ruta = destino / f"{i:02d}.jpg"
-        if ruta.exists():
+        misma_url = previas.get(str(i)) == _base_url(u)
+        # Sin urls.json (fotos bajadas antes de que existiera) se confía en el
+        # caché como antes: no hay con qué comparar.
+        if ruta.exists() and (misma_url or sin_indice):
             guardadas.append(ruta)
             continue
         try:
@@ -69,7 +101,18 @@ def descargar(urls: list[str], destino: Path, maximo: int = 16) -> list[Path]:
             guardadas.append(ruta)
         except Exception as e:  # una foto rota no debe frenar la corrida
             print(f"    ! no pude bajar la foto {i}: {e}")
+
+    indice_archivo.write_text(
+        json.dumps({str(i): _base_url(u) for i, u in enumerate(elegidas, start=1)},
+                   ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     return guardadas
+
+
+def numero_de_foto(ruta: Path, posicion: int) -> int:
+    """El número que se imprime en la hoja: el del archivo (07.jpg -> 7)."""
+    return int(ruta.stem) if ruta.stem.isdigit() else posicion
 
 
 def _fuente(tam: int):
@@ -115,13 +158,14 @@ def hoja_contacto(fotos: list[Path], salida: Path, titulo: str, columnas: int = 
         )
 
     for idx, ruta in enumerate(fotos):
-        n = idx + 1
+        n = numero_de_foto(ruta, idx + 1)
         fila, col = divmod(idx, columnas)
         x = margen + col * (ancho_celda + margen)
         y = banda + margen + fila * (alto_celda + margen)
         try:
             img = Image.open(ruta).convert("RGB")
-        except Exception:
+        except (OSError, ValueError) as e:
+            print(f"    ! la foto {ruta.name} está dañada y queda fuera de la hoja: {e}")
             continue
         img = _encajar(img, ancho_celda, alto_celda)
         lienzo.paste(img, (x, y))
