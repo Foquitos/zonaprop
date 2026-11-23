@@ -8,7 +8,33 @@ import urllib.parse
 from pathlib import Path
 
 
+from zp import perfil
 from zp.comun import _plata
+
+
+def _preguntas(a: dict) -> list[str]:
+    """Las del auditor primero (salen de mirar las fotos), después las del texto."""
+    aud = a.get("auditoria") or {}
+    preguntas = list(aud.get("preguntas_visita") or []) + list(a.get("preguntas_visita") or [])
+    if aud.get("fotos_a_revisar_en_visita"):
+        fotos = ", ".join(str(n) for n in aud["fotos_a_revisar_en_visita"])
+        preguntas.insert(0, f"Mirar en persona lo que se ve en las fotos {fotos}.")
+    dist_bp = a.get("barrio_popular_distancia_m")
+    if dist_bp is not None and dist_bp <= 600:
+        nombre = a.get("barrio_popular_nombre") or "un barrio popular"
+        preguntas.append(f"¿Cómo es la cuadra de noche? El RENABAP registra {nombre} a {dist_bp} m.")
+    # Sin repetidos, conservando el orden.
+    return list(dict.fromkeys(preguntas))
+
+
+def _linea_veredicto(a: dict) -> str | None:
+    aud = a.get("auditoria")
+    if not aud:
+        return None
+    txt = f"{aud.get('veredicto', '').replace('_', ' ')} (visual {aud.get('score_visual')}): {aud.get('resumen') or ''}"
+    if aud.get("vicio_critico"):
+        txt += f" Vicio crítico: {aud['vicio_critico']}"
+    return txt
 
 
 def generar_ficha_visita_html(run: str, top_avisos: list[dict]) -> str:
@@ -35,11 +61,13 @@ def generar_ficha_visita_html(run: str, top_avisos: list[dict]) -> str:
         if bp_texto:
             bp_meta = f'<div class="meta-item" style="grid-column: span 3;"><strong>Barrio popular más cercano:</strong> {html.escape(bp_texto)}</div>'
 
-        preguntas = list(a.get("preguntas_visita") or [])
-        if dist_bp is not None and dist_bp <= 600:
-            nombre = nombre_bp or "un barrio popular"
-            preguntas.append(f"¿Cómo es la cuadra de noche? El RENABAP registra {nombre} a {dist_bp} m.")
-        preguntas_li = "".join(f"<li><span class='check-box'></span> {html.escape(p)}</li>" for p in preguntas)
+        preguntas_li = "".join(f"<li><span class='check-box'></span> {html.escape(p)}</li>" for p in _preguntas(a))
+        veredicto = _linea_veredicto(a)
+        visita_cuando = (a.get("seguimiento") or {}).get("visita")
+        if veredicto:
+            bp_meta += f'<div class="meta-item" style="grid-column: span 3;"><strong>🤖 Auditoría:</strong> {html.escape(veredicto)}</div>'
+        if visita_cuando:
+            bp_meta += f'<div class="meta-item" style="grid-column: span 3;"><strong>📅 Visita:</strong> {html.escape(visita_cuando)}</div>'
 
         score_badge_class = "score-high" if score >= 70 else ("score-mid" if score >= 50 else "score-low")
 
@@ -335,6 +363,10 @@ def generar_ficha_visita(run: str, top_avisos: list[dict], carpeta: Path) -> Pat
         ]
         if bp_texto:
             lineas.append(f"- **Barrio popular más cercano**: {bp_texto}")
+        if _linea_veredicto(a):
+            lineas.append(f"- **🤖 Auditoría**: {_linea_veredicto(a)}")
+        if (a.get("seguimiento") or {}).get("visita"):
+            lineas.append(f"- **📅 Visita**: {a['seguimiento']['visita']}")
         lineas += [
             f"- **Costo Mensual**: {costo} | **Caja de Entrada**: {caja} | **Ambientes**: {amb} amb ({m2} m²)",
             f"- **Garantías declaradas**: {gar}",
@@ -342,11 +374,7 @@ def generar_ficha_visita(run: str, top_avisos: list[dict], carpeta: Path) -> Pat
             "",
             "**🔍 Preguntas específicas para hacerle al martillero in situ:**",
         ]
-        preguntas = list(a.get("preguntas_visita") or [])
-        if dist_bp is not None and dist_bp <= 600:
-            nombre = nombre_bp or "un barrio popular"
-            preguntas.append(f"¿Cómo es la cuadra de noche? El RENABAP registra {nombre} a {dist_bp} m.")
-        for p in preguntas:
+        for p in _preguntas(a):
             lineas.append(f"- [ ] {p}")
 
         lineas += [
@@ -371,6 +399,36 @@ def generar_ficha_visita(run: str, top_avisos: list[dict], carpeta: Path) -> Pat
     return destino
 
 
+def mensaje_consulta(a: dict) -> str:
+    """El mensaje de WhatsApp: pregunta sólo lo que el aviso no dice.
+
+    Antes los 20 mensajes eran idénticos salvo la dirección y decían "cuento
+    con garantía" a secas, aunque el aviso exigiera una garantía puntual.
+    """
+    tipo = (a.get("tipo") or "departamento")
+    amb = a.get("ambientes")
+    desc = f"el {tipo} de {amb} ambientes" if amb else f"el {tipo}"
+    partes = [
+        f"Hola! Te consulto por {desc} en {a.get('direccion') or 'la dirección publicada'} "
+        f"(Ref Zonaprop #{a.get('id')}). ¿Sigue disponible?",
+        f"Cuento con {perfil.describir_garantias()} y recibos de sueldo.",
+    ]
+    consultas = []
+    pregunta_ia = (a.get("auditoria") or {}).get("pregunta_para_inmobiliaria")
+    if pregunta_ia:
+        consultas.append(pregunta_ia)
+    if a.get("expensas_imputadas"):
+        consultas.append("¿De cuánto fueron las últimas expensas?")
+    if (a.get("ajuste_indice") or "No especifica") == "No especifica":
+        consultas.append("¿Con qué índice y cada cuánto ajusta?")
+    if not a.get("garantias_aceptadas"):
+        consultas.append("¿Qué garantías aceptan?")
+    if consultas:
+        partes.append("Quería consultarte: " + " ".join(consultas[:3]))
+    partes.append("¿Qué días y horarios tienen para coordinar una visita? Muchas gracias!")
+    return " ".join(partes)
+
+
 def generar_mensajes_inmobiliarias(run: str, top_avisos: list[dict], carpeta: Path) -> Path:
     """Genera mensajes_inmobiliarias.txt con textos listos para consultar por WhatsApp / Email."""
     bloques = [
@@ -381,20 +439,25 @@ def generar_mensajes_inmobiliarias(run: str, top_avisos: list[dict], carpeta: Pa
         "",
     ]
 
-    for idx, a in enumerate(top_avisos[:20], start=1):
+    # Una sola consulta por propiedad: si está publicada por dos inmobiliarias,
+    # se escribe a la que la publica más barata.
+    vistos: set[str] = set()
+    elegidos = []
+    for a in top_avisos:
+        aid = str(a.get("id"))
+        if aid in vistos:
+            continue
+        vistos.add(aid)
+        vistos.update(str(i) for i in a.get("duplicados_ids") or [])
+        elegidos.append(a)
+
+    for idx, a in enumerate(elegidos[:20], start=1):
         aid = a.get("id")
         score = a.get("score")
         dir_txt = a.get("direccion") or "Sin dirección"
         costo = _plata(a.get("costo_mensual"))
-        amb = a.get("ambientes") or "?"
-        tipo = (a.get("tipo") or "departamento").capitalize()
         url = a.get("url") or ""
-
-        msg = (
-            f"Hola! Te consulto por el alquiler del {tipo} de {amb} ambientes en {dir_txt} "
-            f"(Ref Zonaprop #{aid}). ¿Sigue disponible? Cuento con garantía y recibos de sueldo listos. "
-            f"¿Qué días y horarios tienen disponibles para coordinar una visita? Muchas gracias!"
-        )
+        msg = mensaje_consulta(a)
 
         bloques += [
             f"#{idx} | ID: {aid} | Score: {score} | {dir_txt} ({costo}/mes)",

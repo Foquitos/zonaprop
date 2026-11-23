@@ -125,6 +125,7 @@ class Menu(ttk.Frame):
         self.cola: queue.Queue[str] = queue.Queue()
         self.proceso: subprocess.Popen | None = None
         self.ultimo_run: str | None = None
+        self._al_terminar = None
 
         self.grid(sticky="nsew")
         maestro.columnconfigure(0, weight=1)
@@ -299,6 +300,11 @@ class Menu(ttk.Frame):
                         variable=self.headless).grid(row=fila, column=0, columnspan=2,
                                                      sticky="w", pady=(6, 0))
         fila += 1
+        self.auditar_en_todo = tk.BooleanVar(value=True)
+        ttk.Checkbutton(caja, text="Auditar fotos con IA (Sonnet) al correr todo",
+                        variable=self.auditar_en_todo).grid(row=fila, column=0, columnspan=2,
+                                                            sticky="w")
+        fila += 1
         ttk.Label(caja, text="Recomendado destildado la 1ª vez si aparece verificación Cloudflare.",
                   style="Muted.TLabel").grid(row=fila, column=0, columnspan=2, sticky="w")
 
@@ -320,20 +326,23 @@ class Menu(ttk.Frame):
             ("📊 2 · Rankear", self.paso_rankear),
             ("🖼️ 3 · Fotos", self.paso_fotos),
             ("📄 4 · Dossier", self.paso_dossier),
+            ("🤖 5 · Auditar (Sonnet)", self.paso_auditar),
+            ("🔎 Segunda revisión (Opus)", self.paso_segunda_revision),
         ]
         for i, (texto, fn) in enumerate(acciones):
             b = ttk.Button(pasos, text=texto, command=fn, style="TButton")
             b.grid(row=i // 2, column=i % 2, sticky="ew", padx=3, pady=2)
             self.botones[texto] = b
+        fila_todo = (len(acciones) + 1) // 2
 
         # Botón principal Todo Seguido
         self.btn_todo = ttk.Button(pasos, text="🚀 Correr Todo el Pipeline",
                                    command=self.paso_todo, style="Success.TButton")
-        self.btn_todo.grid(row=2, column=0, sticky="ew", padx=3, pady=(6, 2))
+        self.btn_todo.grid(row=fila_todo, column=0, sticky="ew", padx=3, pady=(6, 2))
 
         self.boton_frenar = ttk.Button(pasos, text="⏹ Frenar", command=self.frenar,
                                        state="disabled", style="Danger.TButton")
-        self.boton_frenar.grid(row=2, column=1, sticky="ew", padx=3, pady=(6, 2))
+        self.boton_frenar.grid(row=fila_todo, column=1, sticky="ew", padx=3, pady=(6, 2))
 
         # Barra de progreso
         self.progreso = ttk.Progressbar(caja, orient="horizontal", mode="determinate",
@@ -357,6 +366,13 @@ class Menu(ttk.Frame):
 
         self.btn_fotos = ttk.Button(marco_accesos, text="📁 Ver Fotos", command=self.abrir_carpeta_fotos)
         self.btn_fotos.grid(row=0, column=3, padx=2, pady=2, sticky="ew")
+
+        ttk.Button(marco_accesos, text="🗂 Tablero de todas las zonas",
+                   command=self.abrir_tablero).grid(row=1, column=0, columnspan=2, padx=2, pady=2, sticky="ew")
+        ttk.Button(marco_accesos, text="🆕 Novedades",
+                   command=self.ver_novedades).grid(row=1, column=2, padx=2, pady=2, sticky="ew")
+        ttk.Button(marco_accesos, text="📥 Importar seguimiento",
+                   command=self.importar_seguimiento).grid(row=1, column=3, padx=2, pady=2, sticky="ew")
 
         # Estado y comando
         self.estado = tk.StringVar(value="🟢 Listo para buscar.")
@@ -438,6 +454,40 @@ class Menu(ttk.Frame):
                 return
 
         messagebox.showinfo("Ficha de Visita", "Aún no se generó la ficha de visita. Corré '4 · Dossier'.")
+
+    def abrir_tablero(self):
+        """Arma el tablero con todas las búsquedas y lo abre al terminar."""
+        def al_terminar():
+            destino = SALIDA / "tablero.html"
+            if destino.exists():
+                webbrowser.open(str(destino))
+        self._correr([["tablero"]], "Armando el tablero de todas las zonas",
+                     progreso_val=100, al_terminar=al_terminar)
+
+    def ver_novedades(self):
+        c = self._obtener_carpeta_run()
+        if not c:
+            messagebox.showinfo("Novedades", "No hay corridas todavía.")
+            return
+        self._correr([["diff", "--run", c.name]], f"Novedades de {c.name}", progreso_val=100)
+
+    def importar_seguimiento(self):
+        """El dashboard exporta seguimiento.json a Descargas; esto lo trae al programa."""
+        from tkinter import filedialog
+
+        descargas = Path.home() / "Downloads"
+        ruta = filedialog.askopenfilename(
+            title="Elegí el seguimiento exportado desde el dashboard",
+            initialdir=str(descargas if descargas.exists() else Path.home()),
+            filetypes=[("Seguimiento", "seguimiento*.json"), ("JSON", "*.json")],
+        )
+        if not ruta:
+            return
+        cmds = [["seguir", "--importar", ruta]]
+        c = self._obtener_carpeta_run()
+        if c and (c / "ranking.json").exists():
+            cmds.append(["dossier", "--run", c.name, "--top", str(int(self._numero("top")))])
+        self._correr(cmds, "Importando seguimiento", progreso_val=100)
 
     def abrir_carpeta_fotos(self):
         c = self._obtener_carpeta_run()
@@ -539,6 +589,30 @@ class Menu(ttk.Frame):
                "--top", str(int(self._numero("top")))]
         self._correr([cmd], "Generando dossier, dashboard y mapa", progreso_val=100)
 
+    def paso_auditar(self):
+        elegidas = self._validar()
+        if not elegidas:
+            return
+        run = self.nombre_run(elegidas)
+        self.ultimo_run = run
+        cmd = ["auditar", "--run", run, "--top", str(int(self._numero("top")))]
+        self._correr([cmd], "Auditando fotos con Sonnet", progreso_val=100)
+
+    def paso_segunda_revision(self):
+        elegidas = self._validar()
+        if not elegidas:
+            return
+        run = self.nombre_run(elegidas)
+        self.ultimo_run = run
+        if not messagebox.askokcancel(
+            "Segunda revisión con Opus",
+            "Opus revisa con las fotos en resolución completa los avisos que Sonnet no descartó.\n\n"
+            "Cuesta unos USD 0,20 por aviso de los créditos de la API. ¿Sigo?",
+        ):
+            return
+        cmd = ["auditar", "--run", run, "--segunda", "--top", str(int(self._numero("top")))]
+        self._correr([cmd], "Segunda revisión con Opus", progreso_val=100)
+
     def paso_todo(self):
         elegidas = self._validar()
         if not elegidas:
@@ -565,12 +639,17 @@ class Menu(ttk.Frame):
              "--dolar", str(int(self._numero("dolar")))] + self._extras_navegador(),
             ["dossier", "--run", run, "--top", str(int(self._numero("top")))],
         ]
+        # La auditoría va última: si falla (sin API key, sin créditos), el
+        # dashboard ya quedó armado. Cuando audita algo, regenera el dossier.
+        if self.auditar_en_todo.get():
+            cmds.append(["auditar", "--run", run, "--top", str(int(self._numero("top")))])
         self._correr(cmds, f"Ejecutando Pipeline Completo ({len(elegidas)} zonas)", progreso_val=100)
 
     # ------------------------------------------------------------------ #
     # Ejecución de subprocesos
     # ------------------------------------------------------------------ #
-    def _correr(self, comandos: list[list[str]], titulo: str, progreso_val: int = 50):
+    def _correr(self, comandos: list[list[str]], titulo: str, progreso_val: int = 50,
+                al_terminar=None):
         if self.proceso is not None:
             messagebox.showinfo("Proceso activo", "Ya hay una tarea corriendo. Esperá a que finalice o presiona Frenar.")
             return
@@ -578,6 +657,7 @@ class Menu(ttk.Frame):
         self._habilitar(False)
         self.progreso["value"] = max(10, progreso_val - 20)
         self.estado.set(f"🔵 {titulo}...")
+        self._al_terminar = al_terminar
         hilo = threading.Thread(target=self._trabajar, args=(comandos, titulo, progreso_val), daemon=True)
         hilo.start()
 
@@ -603,7 +683,13 @@ class Menu(ttk.Frame):
                 self.proceso = None
 
             if codigo != 0:
-                self.cola.put(f"!ERROR El paso finalizó con código {codigo}.\n")
+                motivo = {
+                    1: "la verificación de seguridad no se resolvió (o falló la API)",
+                    2: "la zona no coincide con la búsqueda",
+                    3: "la búsqueda quedó incompleta (lo bajado se guardó)",
+                }.get(codigo, f"código {codigo}")
+                self.cola.put(f"!ERROR El paso terminó con problemas: {motivo}. "
+                              "Corté los pasos siguientes.\n")
                 fallo = True
                 break
 
@@ -634,6 +720,9 @@ class Menu(ttk.Frame):
                 if linea.startswith("!FIN "):
                     self.estado.set(linea[5:])
                     self._habilitar(True)
+                    callback, self._al_terminar = getattr(self, "_al_terminar", None), None
+                    if callback and "Con errores" not in linea:
+                        callback()
                     continue
 
                 tag = ()
