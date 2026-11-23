@@ -440,6 +440,34 @@ def test_corrida_vieja_muestra_novedades_en_la_primera_busqueda_nueva(tmp_path, 
 
 
 # --------------------------------------------------------------------------- #
+# Zonas
+# --------------------------------------------------------------------------- #
+
+def test_catalogo_de_zonas_consistente():
+    """Cada slug de GRUPOS existe y aparece una sola vez: el árbol del menú usa
+    el slug como id y Tkinter rompe con un id repetido."""
+    from zp import zonas, zpindex
+
+    en_grupos = [s for _, slugs in zonas.GRUPOS for s in slugs]
+    assert len(en_grupos) == len(set(en_grupos))
+    assert set(en_grupos) == set(zonas.TODAS)
+    for s in ("boulogne-sur-mer", "beccar", "acassuso", "villa-adelina-vicente-lopez"):
+        assert zpindex.region_de_zona(s) == "gba_norte", s
+
+
+def test_zonas_homonimas_de_san_isidro_no_se_confunden():
+    """Los h1 que devolvió Zonaprop el 22/11/2026 al verificar los slugs."""
+    from zp import zonas
+
+    assert zonas.validar_h1("boulogne-sur-mer", "42 Departamentos o PH en alquiler en Boulogne Sur Mer, San Isidro")[0]
+    assert zonas.validar_h1("beccar", "86 Departamentos o PH en alquiler en Béccar, San Isidro")[0]
+    # La localidad San Isidro no es el partido, y Villa Adelina tiene dos lados.
+    assert not zonas.validar_h1("san-isidro-san-isidro", "694 Departamentos o PH en alquiler en San Isidro, GBA Norte")[0]
+    assert not zonas.validar_h1("villa-adelina", "6 Departamentos o PH en alquiler en Villa Adelina, Vicente López")[0]
+    assert zonas.validar_h1("villa-adelina-vicente-lopez", "6 Departamentos o PH en alquiler en Villa Adelina, Vicente López")[0]
+
+
+# --------------------------------------------------------------------------- #
 # Seguimiento, dashboard y mensajes
 # --------------------------------------------------------------------------- #
 

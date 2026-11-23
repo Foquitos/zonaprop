@@ -19,7 +19,7 @@ Pipeline: `buscar` → `rankear` → `fotos` → `dossier` → `auditar`.
 - Los archivos de `salida/` son datos reales del usuario: NO los borres ni los
   regeneres. Podés leerlos. `salida/seguimiento.json` y `auditoria.json`
   (favoritos, descartes, veredictos pagados) son lo más delicado.
-- Tests: `python -m pytest tests/ -q`. Hoy pasan 163. No podés bajar ese número.
+- Tests: `python -m pytest tests/ -q`. Hoy pasan 165. No podés bajar ese número.
   El fixture (`tests/fixture_listado.py`) es una captura real del sitio; no lo
   edites para que un test pase.
 

@@ -146,6 +146,13 @@ Los casos que verifiqué a mano:
 | `san-martin` | 4 avisos de San Martín, **Mendoza** — hay que usar `general-san-martin` |
 | `la-lucila` | 0 avisos — hay que usar `la-lucila-vicente-lopez` |
 | `florida-belgrano` | "Belgrano, CABA **o** Florida, Vicente López": el guion de más lo interpreta como dos zonas |
+| `boulogne` | 55.601 avisos de toda la Argentina — hay que usar `boulogne-sur-mer` |
+| `lomas-de-san-isidro` | "Lomas, Rocha": **Uruguay** |
+| `victoria` | Victoria, **Entre Ríos** |
+| `villa-adelina-san-isidro` | "San Isidro **o** Villa Adelina", otra vez el guion de más |
+
+Villa Adelina está partida entre dos partidos: `villa-adelina` es el lado de
+San Isidro y `villa-adelina-vicente-lopez` el de Vicente López.
 
 Por eso cada zona del catálogo guarda el texto que Zonaprop tiene que devolver
 en el `<h1>`, y el scraper compara antes de guardar nada. Si no coincide, corta

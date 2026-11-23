@@ -10,6 +10,14 @@ que parecen normales. Verificados el 30/8/2026:
     san-martin    -> 4 avisos en San Martín, MENDOZA        (hay que usar general-san-martin)
     la-lucila     -> 0 avisos                               (hay que usar la-lucila-vicente-lopez)
 
+Y el 22/11/2026, al sumar las localidades de San Isidro:
+
+    boulogne              -> 55.601 avisos "en Argentina"   (hay que usar boulogne-sur-mer)
+    la-horqueta           -> 55.601 avisos "en Argentina"   (hay que usar la-horqueta-san-isidro)
+    lomas-de-san-isidro   -> "Lomas, Rocha"                 (¡Uruguay!)
+    victoria              -> "Victoria, Entre Ríos"
+    villa-adelina-san-isidro -> "San Isidro o Villa Adelina" (el guion de más es un OR)
+
 Además, cuando dos zonas se llaman igual, el slug lleva el partido pegado
 (`vicente-lopez-vicente-lopez` es la localidad; `vicente-lopez` a secas es todo
 el partido). Y cuando un slug tiene un guion de más, Zonaprop lo interpreta como
@@ -65,16 +73,40 @@ GBA_NORTE = [
     Zona("villa-martelli", "Villa Martelli", "Villa Martelli, Vicente López",
          "localidad", "vicente-lopez"),
 
-    # --- Otros partidos ---
-    Zona("san-isidro", "San Isidro (partido)", "San Isidro, GBA Norte", "partido", "gba-norte"),
-    Zona("martinez", "Martínez", "Martínez, San Isidro", "localidad", "san-isidro"),
+    Zona("villa-adelina-vicente-lopez", "Villa Adelina (lado Vicente López)",
+         "Villa Adelina, Vicente López", "localidad", "vicente-lopez",
+         nota="La parte de Villa Adelina que cae en Vicente López. Poca oferta."),
+
+    # --- Partido de San Isidro (verificados el 22/11/2026) ---
+    Zona("san-isidro", "San Isidro (partido)", "San Isidro, GBA Norte", "partido", "gba-norte",
+         nota="Las seis localidades juntas: unos 700 departamentos y PH en alquiler."),
+    Zona("san-isidro-san-isidro", "San Isidro (solo la localidad)",
+         "San Isidro, San Isidro", "localidad", "san-isidro",
+         nota="El centro histórico, la catedral y el bajo. NO es todo el partido."),
     Zona("villa-adelina", "Villa Adelina", "Villa Adelina, San Isidro",
          "localidad", "san-isidro",
-         nota="Zonaprop la cuelga de San Isidro, aunque parte cae en Vicente López."),
+         nota="La parte que cae en Vicente López "
+              "tiene su propio slug: villa-adelina-vicente-lopez."),
+    Zona("boulogne-sur-mer", "Boulogne", "Boulogne Sur Mer, San Isidro",
+         "localidad", "san-isidro",
+         nota="`boulogne` a secas devuelve todo el país."),
+    Zona("martinez", "Martínez", "Martínez, San Isidro", "localidad", "san-isidro",
+         nota="La localidad con más oferta del partido."),
+    Zona("beccar", "Béccar", "Béccar, San Isidro", "localidad", "san-isidro"),
+    Zona("acassuso", "Acassuso", "Acassuso, San Isidro", "localidad", "san-isidro"),
+    Zona("la-horqueta-san-isidro", "La Horqueta", "La Horqueta, San Isidro",
+         "barrio", "san-isidro",
+         nota="Casi todo casas: muy pocos departamentos o PH en alquiler."),
+
+    # --- Otros partidos ---
     Zona("general-san-martin", "General San Martín", "General San Martín, GBA Norte",
          "partido", "gba-norte",
          nota="Usar este slug: `san-martin` te devuelve San Martín de MENDOZA."),
     Zona("san-fernando", "San Fernando", "San Fernando, GBA Norte", "partido", "gba-norte"),
+    Zona("san-fernando-san-fernando", "San Fernando (solo la localidad)",
+         "San Fernando, San Fernando", "localidad", "san-fernando"),
+    Zona("virreyes", "Virreyes", "Virreyes, San Fernando", "localidad", "san-fernando"),
+    Zona("punta-chica", "Punta Chica", "Punta Chica, San Fernando", "localidad", "san-fernando"),
     Zona("tigre", "Tigre", "Tigre, GBA Norte", "partido", "gba-norte"),
 ]
 
@@ -158,14 +190,18 @@ TODAS = {z.slug: z for z in (GBA_NORTE + CABA)}
 
 # Cómo se agrupa en el menú.
 GRUPOS = [
+    ("GBA Norte — Partido de San Isidro", [
+        "san-isidro", "villa-adelina", "boulogne-sur-mer", "martinez", "beccar",
+        "acassuso", "san-isidro-san-isidro", "la-horqueta-san-isidro",
+    ]),
     ("GBA Norte — Partido de Vicente López", [
         "vicente-lopez", "vicente-lopez-vicente-lopez", "olivos",
         "la-lucila-vicente-lopez", "florida", "florida-oeste", "munro",
-        "carapachay", "villa-martelli",
+        "carapachay", "villa-martelli", "villa-adelina-vicente-lopez",
     ]),
     ("GBA Norte — otros partidos", [
-        "san-isidro", "martinez", "villa-adelina", "general-san-martin",
-        "san-fernando", "tigre", "gba-norte",
+        "general-san-martin", "san-fernando", "san-fernando-san-fernando",
+        "virreyes", "punta-chica", "tigre", "gba-norte",
     ]),
     ("CABA — Corredor Norte", [
         "nunez", "belgrano", "belgrano-c", "belgrano-r", "bajo-belgrano",
