@@ -341,9 +341,17 @@ def crear_cliente():
     try:
         import anthropic
     except ImportError as e:
+        import sys
+
+        # El caso real: el menú se abrió con el Python del PATH y no con el
+        # del entorno virtual, que es donde está instalado. Decir CUÁL Python
+        # es el que no lo tiene ahorra adivinar.
         raise CorteAuditoria(
-            "Falta el SDK de Anthropic. Instalalo con:\n"
-            "    .venv\\Scripts\\python.exe -m pip install -r requirements.txt"
+            f"Falta el SDK de Anthropic en el Python que está corriendo:\n"
+            f"    {sys.executable}\n"
+            "Abrí el menú con 'Iniciar Zonaprop.bat' (usa el entorno virtual), o "
+            "instalalo en ese Python con:\n"
+            f'    "{sys.executable}" -m pip install -r requirements.txt'
         ) from e
     try:
         return anthropic.Anthropic(max_retries=4)

@@ -684,9 +684,10 @@ class Menu(ttk.Frame):
 
             if codigo != 0:
                 motivo = {
-                    1: "la verificación de seguridad no se resolvió (o falló la API)",
+                    1: "la verificación de seguridad no se resolvió",
                     2: "la zona no coincide con la búsqueda",
                     3: "la búsqueda quedó incompleta (lo bajado se guardó)",
+                    4: "no se pudo usar la API de Claude (el motivo está arriba)",
                 }.get(codigo, f"código {codigo}")
                 self.cola.put(f"!ERROR El paso terminó con problemas: {motivo}. "
                               "Corté los pasos siguientes.\n")

@@ -54,6 +54,7 @@ SALIDA_OK = 0
 SALIDA_DESAFIO = 1
 SALIDA_ZONA_INCORRECTA = 2
 SALIDA_INCOMPLETA = 3
+SALIDA_API = 4          # `auditar` no pudo usar la API de Claude
 
 CAMPOS_CSV = [
     "score", "id", "tipo", "precio", "moneda",
@@ -493,7 +494,7 @@ def cmd_auditar(args):
         print("\nActualizo el dashboard y la ficha de visita con los veredictos...")
         cmd_dossier(argparse.Namespace(run=args.run, top=args.top, max_descripcion=0))
     if resumen["cortado"] and not resumen["auditados"]:
-        return 1
+        return SALIDA_API
     return 0
 
 
